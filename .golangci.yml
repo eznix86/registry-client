@@ -22,6 +22,7 @@ linters:
     - bidichk
     - bodyclose
     - usestdlibvars
+    - staticcheck
   disable:
     - wsl
   settings:
