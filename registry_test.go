@@ -101,11 +101,11 @@ func TestParseManifest(t *testing.T) {
 
 func TestParseLinkHeader(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantMore  bool
-		wantLast  string
-		wantN     int
+		name     string
+		input    string
+		wantMore bool
+		wantLast string
+		wantN    int
 	}{
 		{name: "valid", input: `</v2/_catalog?last=myrepo&n=100>; rel="next"`, wantMore: true, wantLast: "myrepo", wantN: 100},
 		{name: "without n", input: `</v2/_catalog?last=repo123>; rel="next"`, wantMore: true, wantLast: "repo123", wantN: 0},
@@ -278,10 +278,10 @@ func testResourceExists(
 	t.Helper()
 
 	tests := []struct {
-		name       string
-		statusCode int
-		wantExists bool
-		wantErr    bool
+		name        string
+		statusCode  int
+		wantExists  bool
+		wantErr     bool
 		maxAttempts int
 	}{
 		{name: "exists", statusCode: http.StatusOK, wantExists: true},
@@ -516,7 +516,6 @@ func TestParseManifest_MalformedManifestList(t *testing.T) {
 	assert.Nil(t, m)
 }
 
-
 // fakeRoundTripper simulates network errors
 type fakeRoundTripper struct {
 	err error
@@ -659,7 +658,6 @@ func TestGetManifest_NetworkError(t *testing.T) {
 	assert.Nil(t, resp)
 }
 
-
 func TestGetManifest_ReadBodyError(t *testing.T) {
 	// Simulate connection cut mid-stream using custom RoundTripper
 	client := &Client{BaseURL: "http://example.com"}
@@ -719,7 +717,6 @@ func TestGetBlob_NetworkError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, resp)
 }
-
 
 func TestGetBlob_ReadBodyError(t *testing.T) {
 	// Simulate connection cut mid-stream
