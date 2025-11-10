@@ -1,0 +1,17 @@
+{
+	"schemaVersion": 2,
+	"mediaType": "application/vnd.oci.image.manifest.v1+json",
+	"config": {
+		"digest": "sha256:config123"
+	},
+	"layers": [
+		{
+			"digest": "sha256:layer1",
+			"size": 1024
+		},
+		{
+			"digest": "sha256:layer2",
+			"size": 2048
+		}
+	]
+}
