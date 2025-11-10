@@ -1,3 +1,6 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/eznix86/registry-client)](https://goreportcard.com/report/github.com/eznix86/registry-client) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+
 # Registry Client
 
 A Go client library for interacting with OCI/Docker container registries.
