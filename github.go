@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -100,9 +101,15 @@ func (gc *GitHubClient) GetCatalog(ctx context.Context, pagination *PaginationPa
 // DeleteManifest deletes a manifest by finding its package version and deleting it.
 // reference can be either a tag name (e.g., "latest", "v1.2.3") or a digest (e.g., "sha256:abc123...").
 // This overrides the standard registry DeleteManifest which doesn't work on GitHub Container Registry.
-func (gc *GitHubClient) DeleteManifest(ctx context.Context, repository, reference string) error {
-	parts := strings.Split(repository, "/")
-	packageName := parts[len(parts)-1]
+// The acceptHeaders parameter is ignored for GitHub Container Registry.
+func (gc *GitHubClient) DeleteManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) error {
+	// For GitHub packages, extract package name after the first '/'
+	// e.g., "eznix86/textbee/api" -> "textbee/api"
+	idx := strings.Index(repository, "/")
+	packageName := repository
+	if idx != -1 {
+		packageName = repository[idx+1:]
+	}
 
 	gc.logDebug("GitHub delete manifest",
 		"operation", "DeleteManifest",
@@ -233,12 +240,47 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	}, nil
 }
 
-func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName string, pagination *PaginationParams) ([]GitHubPackageVersion, error) {
-	var apiURL string
-	if gc.Type == GitHubOrg {
-		apiURL = fmt.Sprintf("%s/orgs/%s/packages/container/%s/versions", gc.api.(*githubPackagesAPI).baseURL, gc.Organization, packageName)
+func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, packageName string) (string, error) {
+	escapedPkg := url.PathEscape(packageName)
+	var path string
+	if clientType == GitHubOrg {
+		path = fmt.Sprintf("/orgs/%s/packages/container/%s/versions", org, escapedPkg)
 	} else {
-		apiURL = fmt.Sprintf("%s/user/packages/container/%s/versions", gc.api.(*githubPackagesAPI).baseURL, packageName)
+		path = fmt.Sprintf("/user/packages/container/%s/versions", escapedPkg)
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	parsedURL.Path = path
+	parsedURL.RawPath = path // Preserve percent encoding
+	return parsedURL.String(), nil
+}
+
+func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, packageName string, versionID int) (string, error) {
+	escapedPkg := url.PathEscape(packageName)
+	var path string
+	if clientType == GitHubOrg {
+		path = fmt.Sprintf("/orgs/%s/packages/container/%s/versions/%d", org, escapedPkg, versionID)
+	} else {
+		path = fmt.Sprintf("/user/packages/container/%s/versions/%d", escapedPkg, versionID)
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	parsedURL.Path = path
+	parsedURL.RawPath = path // Preserve percent encoding
+	return parsedURL.String(), nil
+}
+
+func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName string, pagination *PaginationParams) ([]GitHubPackageVersion, error) {
+	baseURL := gc.api.(*githubPackagesAPI).baseURL
+	apiURL, err := buildPackageVersionsURL(baseURL, gc.Type, gc.Organization, packageName)
+	if err != nil {
+		return nil, err
 	}
 
 	logArgs := []any{"operation", "listPackageVersions", "method", http.MethodGet, "package", packageName, "url", apiURL}
@@ -309,11 +351,9 @@ func (gc *GitHubClient) findPackageVersionID(ctx context.Context, packageName, r
 					return v.ID, nil
 				}
 			} else {
-				for _, tag := range v.Metadata.Container.Tags {
-					if tag == reference {
-						gc.logDebug("Found package version by tag", "package", packageName, "reference", reference, "version_id", v.ID)
-						return v.ID, nil
-					}
+				if slices.Contains(v.Metadata.Container.Tags, reference) {
+					gc.logDebug("Found package version by tag", "package", packageName, "reference", reference, "version_id", v.ID)
+					return v.ID, nil
 				}
 			}
 		}
@@ -328,11 +368,10 @@ func (gc *GitHubClient) findPackageVersionID(ctx context.Context, packageName, r
 }
 
 func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName string, versionID int) error {
-	var apiURL string
-	if gc.Type == GitHubOrg {
-		apiURL = fmt.Sprintf("%s/orgs/%s/packages/container/%s/versions/%d", gc.api.(*githubPackagesAPI).baseURL, gc.Organization, packageName, versionID)
-	} else {
-		apiURL = fmt.Sprintf("%s/user/packages/container/%s/versions/%d", gc.api.(*githubPackagesAPI).baseURL, packageName, versionID)
+	baseURL := gc.api.(*githubPackagesAPI).baseURL
+	apiURL, err := buildPackageVersionURL(baseURL, gc.Type, gc.Organization, packageName, versionID)
+	if err != nil {
+		return err
 	}
 
 	gc.logDebug("GitHub API request", "operation", "deletePackageVersion", "method", http.MethodDelete, "package", packageName, "version_id", versionID, "url", apiURL)

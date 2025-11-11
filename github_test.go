@@ -1087,3 +1087,81 @@ func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "delete package version failed")
 }
+
+func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Package name "textbee/api" is URL encoded to "textbee%2Fapi"
+		t.Logf("Request: %s %s", r.Method, r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/packages/container/textbee%2Fapi/versions":
+			versions := []GitHubPackageVersion{
+				{
+					ID:   99999,
+					Name: "sha256:multi123",
+					Metadata: GitHubPackageMetadata{
+						Container: GitHubContainerMetadata{
+							Tags: []string{"v2.0.0"},
+						},
+					},
+				},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(versions)
+		case r.Method == http.MethodDelete && r.URL.Path == "/user/packages/container/textbee%2Fapi/versions/99999":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Logf("Unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	err := client.DeleteManifest(context.Background(), "eznix86/textbee/api", "v2.0.0")
+	require.NoError(t, err)
+}
+
+func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Package name "mycompany/backend/service" is URL encoded to "mycompany%2Fbackend%2Fservice"
+		t.Logf("Request: %s %s", r.Method, r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions":
+			versions := []GitHubPackageVersion{
+				{
+					ID:   88888,
+					Name: "sha256:orgmulti",
+					Metadata: GitHubPackageMetadata{
+						Container: GitHubContainerMetadata{
+							Tags: []string{"prod"},
+						},
+					},
+				},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(versions)
+		case r.Method == http.MethodDelete && r.URL.Path == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions/88888":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Logf("Unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewGitHubOrgClient("test-token", "acme")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	err := client.DeleteManifest(context.Background(), "acme/mycompany/backend/service", "prod")
+	require.NoError(t, err)
+}
