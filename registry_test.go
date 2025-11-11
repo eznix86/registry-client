@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,8 +173,7 @@ func TestHealthCheck(t *testing.T) {
 			statusCode, err := client.HealthCheck(context.Background())
 
 			require.NoError(t, err)
-			require.NotNil(t, statusCode)
-			assert.Equal(t, tt.wantCode, *statusCode)
+			assert.Equal(t, tt.wantCode, statusCode)
 		})
 	}
 }
@@ -545,10 +545,7 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	n = len(p)
-	if n > remaining {
-		n = remaining
-	}
+	n = min(len(p), remaining)
 
 	copy(p, e.data[e.readCount:e.readCount+n])
 	e.readCount += n
@@ -592,7 +589,7 @@ func TestHealthCheck_InvalidBaseURL(t *testing.T) {
 	statusCode, err := client.HealthCheck(context.Background())
 
 	require.Error(t, err)
-	assert.Nil(t, statusCode)
+	assert.Equal(t, 0, statusCode)
 }
 
 func TestHealthCheck_NetworkError(t *testing.T) {
@@ -602,8 +599,29 @@ func TestHealthCheck_NetworkError(t *testing.T) {
 	client.Transport = &fakeRoundTripper{}
 	statusCode, err := client.HealthCheck(context.Background())
 
-	require.Error(t, err)
-	assert.Nil(t, statusCode)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
+}
+
+func TestHealthCheck_ConnectionRefused(t *testing.T) {
+	client := &Client{BaseURL: "http://localhost:9999"}
+	statusCode, err := client.HealthCheck(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
+}
+
+func TestHealthCheck_ConnectionRefusedWithRetries(t *testing.T) {
+	client := &Client{
+		BaseURL:      "http://localhost:9999",
+		MaxAttempts:  3, // Will try 3 times
+		RetryBackoff: 200 * time.Millisecond,
+	}
+
+	statusCode, err := client.HealthCheck(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
 }
 
 func TestGetCatalog_InvalidBaseURL(t *testing.T) {

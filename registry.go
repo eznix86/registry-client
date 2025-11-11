@@ -129,7 +129,9 @@ func applyPagination(req *http.Request, pagination *PaginationParams) {
 }
 
 // HealthCheck performs a GET on /v2/ to verify registry availability.
-func (c *Client) HealthCheck(ctx context.Context) (*int, error) {
+// Returns the HTTP status code and only returns an error for programming errors (invalid URL).
+// Connection failures (refused, timeout, DNS errors) are mapped to 503 Service Unavailable.
+func (c *Client) HealthCheck(ctx context.Context) (int, error) {
 	url := fmt.Sprintf("%s/v2/", c.BaseURL)
 
 	c.logDebug("Registry request",
@@ -140,11 +142,17 @@ func (c *Client) HealthCheck(ctx context.Context) (*int, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, err
+
+		c.logDebug("Registry unreachable",
+			"operation", "HealthCheck",
+			"error", err.Error(),
+		)
+
+		return http.StatusServiceUnavailable, nil
 	}
 	defer c.closeBody(resp.Body)
 
@@ -153,7 +161,7 @@ func (c *Client) HealthCheck(ctx context.Context) (*int, error) {
 		"status_code", resp.StatusCode,
 	)
 
-	return &resp.StatusCode, nil
+	return resp.StatusCode, nil
 }
 
 // GetCatalog retrieves the list of repositories from /v2/_catalog.
