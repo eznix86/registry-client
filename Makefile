@@ -1,5 +1,5 @@
 test:
-	golangci-lint run -c .golangci.json ./...
+	golangci-lint run -c .golangci.local.json ./...
 	go test -cover ./... -v
 
 ci:

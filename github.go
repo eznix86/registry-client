@@ -97,19 +97,7 @@ func (gc *GitHubClient) GetCatalog(ctx context.Context, pagination *PaginationPa
 	}, nil
 }
 
-func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *PaginationParams) (*GitHubPackagesResponse, error) {
-	apiURL := api.baseURL + "/user/packages"
-
-	logArgs := []any{
-		"operation", "getUserPackages",
-		"method", http.MethodGet,
-		"url", apiURL,
-	}
-	if pagination != nil {
-		logArgs = append(logArgs, "page_size", pagination.N, "last", pagination.Last)
-	}
-	api.client.logDebug("GitHub API request", logArgs...)
-
+func buildGitHubPackagesRequest(ctx context.Context, apiURL, token string, pagination *PaginationParams) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
@@ -128,8 +116,23 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 	}
 
 	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Authorization", "Bearer "+token)
+	return req, nil
+}
 
-	req.Header.Set("Authorization", "Bearer "+api.apiToken)
+func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *PaginationParams) (*GitHubPackagesResponse, error) {
+	apiURL := api.baseURL + "/user/packages"
+
+	logArgs := []any{"operation", "getUserPackages", "method", http.MethodGet, "url", apiURL}
+	if pagination != nil {
+		logArgs = append(logArgs, "page_size", pagination.N, "last", pagination.Last)
+	}
+	api.client.logDebug("GitHub API request", logArgs...)
+
+	req, err := buildGitHubPackagesRequest(ctx, apiURL, api.apiToken, pagination)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := api.client.Do(req)
 	if err != nil {
@@ -147,14 +150,8 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 		return nil, err
 	}
 
-	linkHeader := resp.Header.Get("Link")
-	paginationResp := parseGitHubLinkHeader(linkHeader)
-
-	api.client.logDebug("GitHub API response",
-		"operation", "getUserPackages",
-		"package_count", len(packages),
-		"has_more", paginationResp.HasMore,
-	)
+	paginationResp := parseGitHubLinkHeader(resp.Header.Get("Link"))
+	api.client.logDebug("GitHub API response", "operation", "getUserPackages", "package_count", len(packages), "has_more", paginationResp.HasMore)
 
 	return &GitHubPackagesResponse{
 		Packages:          packages,
@@ -165,37 +162,16 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pagination *PaginationParams) (*GitHubPackagesResponse, error) {
 	apiURL := fmt.Sprintf("%s/orgs/%s/packages", api.baseURL, org)
 
-	logArgs := []any{
-		"operation", "getOrgPackages",
-		"method", http.MethodGet,
-		"organization", org,
-		"url", apiURL,
-	}
+	logArgs := []any{"operation", "getOrgPackages", "method", http.MethodGet, "organization", org, "url", apiURL}
 	if pagination != nil {
 		logArgs = append(logArgs, "page_size", pagination.N, "last", pagination.Last)
 	}
 	api.client.logDebug("GitHub API request", logArgs...)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req, err := buildGitHubPackagesRequest(ctx, apiURL, api.apiToken, pagination)
 	if err != nil {
 		return nil, err
 	}
-
-	q := req.URL.Query()
-	q.Add("package_type", "container")
-
-	if pagination != nil {
-		if pagination.N > 0 {
-			q.Add("per_page", fmt.Sprintf("%d", pagination.N))
-		}
-		if pagination.Last != "" {
-			q.Add("page", pagination.Last)
-		}
-	}
-
-	req.URL.RawQuery = q.Encode()
-
-	req.Header.Set("Authorization", "Bearer "+api.apiToken)
 
 	resp, err := api.client.Do(req)
 	if err != nil {
@@ -213,15 +189,8 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 		return nil, err
 	}
 
-	linkHeader := resp.Header.Get("Link")
-	paginationResp := parseGitHubLinkHeader(linkHeader)
-
-	api.client.logDebug("GitHub API response",
-		"operation", "getOrgPackages",
-		"organization", org,
-		"package_count", len(packages),
-		"has_more", paginationResp.HasMore,
-	)
+	paginationResp := parseGitHubLinkHeader(resp.Header.Get("Link"))
+	api.client.logDebug("GitHub API response", "operation", "getOrgPackages", "organization", org, "package_count", len(packages), "has_more", paginationResp.HasMore)
 
 	return &GitHubPackagesResponse{
 		Packages:          packages,
@@ -229,46 +198,53 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	}, nil
 }
 
+func parseGitHubLinkURL(linkURL string) (page string, pageSize int) {
+	parsedURL, err := url.Parse(linkURL)
+	if err != nil {
+		return "", 0
+	}
+
+	page = parsedURL.Query().Get("page")
+	perPage := parsedURL.Query().Get("per_page")
+	if perPage != "" {
+		_, _ = fmt.Sscanf(perPage, "%d", &pageSize)
+	}
+	return page, pageSize
+}
+
+func extractLinkURL(link string) string {
+	start := strings.Index(link, "<")
+	end := strings.Index(link, ">")
+	if start == -1 || end == -1 || end <= start {
+		return ""
+	}
+	return link[start+1 : end]
+}
+
 func parseGitHubLinkHeader(linkHeader string) PaginatedResponse {
 	if linkHeader == "" {
 		return PaginatedResponse{}
 	}
 
-	// Split by comma to get individual link entries
 	links := strings.Split(linkHeader, ",")
 
-	var nextPage string
-	var pageSize int
-	hasNext := false
-
 	for _, link := range links {
-		// Check if this is the "next" relation
-		if strings.Contains(link, `rel="next"`) {
-			hasNext = true
+		if !strings.Contains(link, `rel="next"`) {
+			continue
+		}
 
-			// Extract URL from <...>
-			start := strings.Index(link, "<")
-			end := strings.Index(link, ">")
-			if start != -1 && end != -1 && end > start {
-				linkURL := link[start+1 : end]
+		linkURL := extractLinkURL(link)
+		if linkURL == "" {
+			return PaginatedResponse{HasMore: true}
+		}
 
-				// Parse URL to get page and per_page parameters
-				parsedURL, err := url.Parse(linkURL)
-				if err == nil {
-					nextPage = parsedURL.Query().Get("page")
-					perPage := parsedURL.Query().Get("per_page")
-					if perPage != "" {
-						_, _ = fmt.Sscanf(perPage, "%d", &pageSize)
-					}
-				}
-			}
-			break
+		nextPage, pageSize := parseGitHubLinkURL(linkURL)
+		return PaginatedResponse{
+			HasMore: true,
+			Last:    nextPage,
+			N:       pageSize,
 		}
 	}
 
-	return PaginatedResponse{
-		HasMore: hasNext,
-		Last:    nextPage,
-		N:       pageSize,
-	}
+	return PaginatedResponse{}
 }

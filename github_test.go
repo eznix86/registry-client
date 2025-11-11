@@ -134,6 +134,7 @@ func TestNewGitHubOrgClient(t *testing.T) {
 	assert.Equal(t, "test-token", client.APIToken)
 }
 
+//nolint:funlen // table-driven test with multiple test cases
 func TestGitHubClient_GetCatalog_User(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -235,6 +236,7 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 	}
 }
 
+//nolint:funlen // table-driven test with multiple test cases
 func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -340,6 +342,7 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 	}
 }
 
+//nolint:funlen // table-driven test with many edge cases
 func TestParseGitHubLinkHeader(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -462,6 +465,7 @@ func TestGithubPackagesAPI_GetUserPackages_NetworkError(t *testing.T) {
 	require.Error(t, err)
 }
 
+//nolint:funlen
 func TestGithubPackagesAPI_GetUserPackages(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -520,7 +524,8 @@ func TestGithubPackagesAPI_GetUserPackages(t *testing.T) {
 				}
 				w.WriteHeader(tt.statusCode)
 
-				if tt.statusCode == http.StatusOK && !tt.wantErr {
+				switch {
+				case tt.statusCode == http.StatusOK && !tt.wantErr:
 					packages := make([]GitHubPackage, len(tt.wantRepos))
 					for i, name := range tt.wantRepos {
 						packages[i] = GitHubPackage{
@@ -531,9 +536,9 @@ func TestGithubPackagesAPI_GetUserPackages(t *testing.T) {
 						}
 					}
 					_ = json.NewEncoder(w).Encode(packages)
-				} else if tt.statusCode == http.StatusOK && tt.wantErr {
+				case tt.statusCode == http.StatusOK && tt.wantErr:
 					_, _ = w.Write([]byte("{invalid json}"))
-				} else {
+				default:
 					_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
 				}
 			}))
@@ -584,6 +589,7 @@ func TestGithubPackagesAPI_GetOrgPackages_NetworkError(t *testing.T) {
 	require.Error(t, err)
 }
 
+//nolint:funlen
 func TestGithubPackagesAPI_GetOrgPackages(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -647,7 +653,8 @@ func TestGithubPackagesAPI_GetOrgPackages(t *testing.T) {
 				}
 				w.WriteHeader(tt.statusCode)
 
-				if tt.statusCode == http.StatusOK && !tt.wantErr {
+				switch {
+				case tt.statusCode == http.StatusOK && !tt.wantErr:
 					packages := make([]GitHubPackage, len(tt.wantRepos))
 					for i, name := range tt.wantRepos {
 						packages[i] = GitHubPackage{
@@ -658,9 +665,9 @@ func TestGithubPackagesAPI_GetOrgPackages(t *testing.T) {
 						}
 					}
 					_ = json.NewEncoder(w).Encode(packages)
-				} else if tt.statusCode == http.StatusOK && tt.wantErr {
+				case tt.statusCode == http.StatusOK && tt.wantErr:
 					_, _ = w.Write([]byte("{invalid json}"))
-				} else {
+				default:
 					_, _ = w.Write([]byte(`{"message":"not found"}`))
 				}
 			}))
