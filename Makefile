@@ -10,7 +10,7 @@ ci/pr:
 coverage:
 	go test -coverprofile=/tmp/coverage.out ./... ; go tool cover -html=/tmp/coverage.out
 
-push:
+push: test
 	git push
 	git push --tag
 	gh release create --generate-notes --latest=true
