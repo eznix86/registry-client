@@ -1,4 +1,5 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/eznix86/registry-client)](https://goreportcard.com/report/github.com/eznix86/registry-client) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Coverage](https://img.shields.io/badge/Coverage-97.4%25-brightgreen)
 
 
 # Registry Client
