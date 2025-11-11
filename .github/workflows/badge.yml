@@ -2,6 +2,8 @@ name: Generate code coverage badge
 
 on:
   push:
+    branches:
+      - main
 
 jobs:
   test:
