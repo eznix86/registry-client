@@ -9,3 +9,8 @@ ci/pr:
 
 coverage:
 	go test -coverprofile=/tmp/coverage.out ./... ; go tool cover -html=/tmp/coverage.out
+
+push:
+	git push
+	git push --tag
+	gh release create
