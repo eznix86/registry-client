@@ -9,22 +9,34 @@ run:
 linters:
   default: standard
   enable:
+    # Style
     - revive
-    - gocyclo
     - misspell
-    - dupl
-    - gocritic
-    - gosec
-    - funlen
-    - nestif
-    - unused
     - asciicheck
     - bidichk
-    - bodyclose
     - usestdlibvars
+
+    # Complexity & Dups
+    - gocyclo
+    - funlen
+    - nestif
+    - dupl
+
+    # Just to be safe
+    - gosec
     - staticcheck
+    - gocritic
+    - unused
+    - bodyclose
+    - errcheck
+    - unparam
+    - prealloc
+    - nilerr
+    - errorlint
+
   disable:
     - wsl
+
   settings:
     gocyclo:
       min-complexity: 15
