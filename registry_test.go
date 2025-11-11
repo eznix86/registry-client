@@ -154,12 +154,16 @@ func TestApplyPagination(t *testing.T) {
 
 func TestHealthCheck(t *testing.T) {
 	tests := []struct {
-		name       string
-		statusCode int
-		wantCode   int
+		name        string
+		statusCode  int
+		wantCode    int
+		maxAttempts int
 	}{
 		{name: "healthy", statusCode: http.StatusOK, wantCode: http.StatusOK},
 		{name: "unhealthy", statusCode: http.StatusUnauthorized, wantCode: http.StatusUnauthorized},
+		{name: "cloudflare 521 - web server down", statusCode: 521, wantCode: 521, maxAttempts: 1},
+		{name: "cloudflare 522 - connection timeout", statusCode: 522, wantCode: 522, maxAttempts: 1},
+		{name: "cloudflare 523 - origin unreachable", statusCode: 523, wantCode: 523, maxAttempts: 1},
 	}
 
 	for _, tt := range tests {
@@ -169,7 +173,7 @@ func TestHealthCheck(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &Client{BaseURL: server.URL, MaxAttempts: tt.maxAttempts}
 			statusCode, err := client.HealthCheck(context.Background())
 
 			require.NoError(t, err)
