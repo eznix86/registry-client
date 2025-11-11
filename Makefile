@@ -13,4 +13,4 @@ coverage:
 push:
 	git push
 	git push --tag
-	gh release create
+	gh release create --generate-notes --latest=true
