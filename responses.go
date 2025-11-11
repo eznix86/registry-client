@@ -43,3 +43,20 @@ type BlobResponse struct {
 	Content []byte
 	Size    int64
 }
+
+// GitHubPackage represents a GitHub container package
+type GitHubPackage struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	PackageType string `json:"package_type"`
+	Visibility  string `json:"visibility"`
+	URL         string `json:"url"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// GitHubPackagesResponse represents the response from GitHub packages endpoint
+type GitHubPackagesResponse struct {
+	Packages []GitHubPackage
+	PaginatedResponse
+}

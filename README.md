@@ -16,6 +16,7 @@ Used by [Docker Registry UI](https://github.com/eznix86/docker-registry-ui)
 - Pagination support for large result sets
 - Optional logging interface
 - Health check endpoint
+- GitHub Container Registry support (user and organization packages)
 
 ## Installation
 
@@ -167,6 +168,36 @@ if err != nil {
 ```go
 // Note: reference must be a digest, not a tag
 err := client.DeleteManifest(context.Background(), "my-repo", "sha256:abc123...")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### GitHub Container Registry
+
+For GitHub Container Registry (ghcr.io), use `GitHubClient`:
+
+```go
+import registryclient "github.com/eznix86/registry-client"
+
+// For user packages
+// Note: Pass your GitHub Personal Access Token directly (plain text)
+// It will be properly encoded for ghcr.io registry access and used plain for API calls
+client := registryclient.NewGitHubClient("ghp_yourtoken")
+
+// List user's container packages
+catalog, err := client.GetCatalog(context.Background(), nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, pkg := range catalog.Repositories {
+    fmt.Println(pkg)
+}
+
+// For organization packages
+orgClient := registryclient.NewGitHubOrgClient("ghp_yourtoken", "myorg")
+orgCatalog, err := orgClient.GetCatalog(context.Background(), nil)
 if err != nil {
     log.Fatal(err)
 }
