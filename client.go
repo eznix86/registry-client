@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -56,36 +57,93 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.doWithRetry(req)
 }
 
+// retryState holds the state for a retry attempt
+type retryState struct {
+	lastResp *http.Response
+	lastErr  error
+}
+
 // doWithRetry executes the request with exponential backoff retry logic
 func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 	maxAttempts := c.maxAttempts()
 	backoff := c.backoff()
-
-	var lastErr error
+	state := &retryState{}
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := c.Client.Do(req)
 
-		if err == nil && !c.isRetryableStatus(resp.StatusCode) {
+		if shouldReturnImmediately(resp, err) {
 			return resp, nil
 		}
 
-		// Handle retryable error
-		if err == nil {
-			c.closeBody(resp.Body)
-			lastErr = fmt.Errorf("retryable status code: %d", resp.StatusCode)
-		} else {
-			lastErr = err
-		}
+		c.updateRetryState(state, resp, err)
 
-		if attempt < maxAttempts {
-			c.logRetry(req, attempt, maxAttempts, lastErr, backoff)
-			time.Sleep(c.calculateBackoff(attempt, backoff))
+		if shouldRetry(attempt, maxAttempts) {
+			sleepDuration := getRetryDelay(state.lastResp, attempt, backoff)
+			c.logRetryAttempt(req, attempt, maxAttempts, state.lastErr, sleepDuration, state.lastResp)
+			time.Sleep(sleepDuration)
 		}
 	}
 
-	c.logMaxRetriesExceeded(req, maxAttempts, lastErr)
-	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+	return c.handleMaxRetriesExceeded(req, maxAttempts, state)
+}
+
+// shouldReturnImmediately checks if we should return the response without retrying
+func shouldReturnImmediately(resp *http.Response, err error) bool {
+	if err != nil {
+		return false
+	}
+	return !isRetryableStatus(resp.StatusCode)
+}
+
+// updateRetryState updates the retry state with the latest response/error
+func (c *Client) updateRetryState(state *retryState, resp *http.Response, err error) {
+	if err == nil {
+		// Close previous response body if exists
+		if state.lastResp != nil {
+			c.closeBody(state.lastResp.Body)
+		}
+		state.lastResp = resp
+		state.lastErr = fmt.Errorf("retryable status code: %d", resp.StatusCode)
+	} else {
+		state.lastErr = err
+	}
+}
+
+// shouldRetry determines if another retry attempt should be made
+func shouldRetry(attempt, maxAttempts int) bool {
+	return attempt < maxAttempts
+}
+
+// getRetryDelay calculates the delay before the next retry attempt
+func getRetryDelay(resp *http.Response, attempt int, backoff time.Duration) time.Duration {
+	if resp != nil {
+		if retryAfter := parseRetryAfter(resp); retryAfter > 0 {
+			return retryAfter
+		}
+	}
+	return calculateBackoff(attempt, backoff)
+}
+
+// logRetryAttempt logs the retry attempt with appropriate context
+func (c *Client) logRetryAttempt(req *http.Request, attempt, maxAttempts int, err error, sleepDuration time.Duration, resp *http.Response) {
+	if resp != nil && parseRetryAfter(resp) > 0 {
+		c.logRetryWithRetryAfter(req, attempt, maxAttempts, err, sleepDuration)
+	} else {
+		c.logRetry(req, attempt, maxAttempts, err, c.backoff())
+	}
+}
+
+// handleMaxRetriesExceeded handles the case when all retry attempts are exhausted
+func (c *Client) handleMaxRetriesExceeded(req *http.Request, maxAttempts int, state *retryState) (*http.Response, error) {
+	c.logMaxRetriesExceeded(req, maxAttempts, state.lastErr)
+
+	// If we have a response with a retryable status, return it instead of error
+	if state.lastResp != nil {
+		return state.lastResp, nil
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", state.lastErr)
 }
 
 // maxAttempts returns the maximum number of attempts (at least 1)
@@ -105,19 +163,43 @@ func (c *Client) backoff() time.Duration {
 }
 
 // isRetryableStatus returns true if the status code warrants a retry
-func (c *Client) isRetryableStatus(statusCode int) bool {
+func isRetryableStatus(statusCode int) bool {
 	return statusCode >= 500 || statusCode == http.StatusTooManyRequests
 }
 
 // calculateBackoff returns the backoff duration for the given attempt using exponential backoff
-func (c *Client) calculateBackoff(attempt int, baseBackoff time.Duration) time.Duration {
+func calculateBackoff(attempt int, baseBackoff time.Duration) time.Duration {
 	exp := max(attempt-1, 0)
 	return baseBackoff * time.Duration(1<<exp)
 }
 
+// parseRetryAfter parses the Retry-After header and returns the duration to wait.
+// Returns 0 if the header is not present or cannot be parsed.
+// Supports both delay-seconds (e.g., "120") and HTTP-date (e.g., "Wed, 21 Oct 2015 07:28:00 GMT")
+func parseRetryAfter(resp *http.Response) time.Duration {
+	retryAfter := resp.Header.Get("Retry-After")
+	if retryAfter == "" {
+		return 0
+	}
+
+	// Try parsing as seconds
+	if seconds, err := strconv.ParseInt(retryAfter, 10, 64); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+
+	// Try parsing as HTTP-date
+	if t, err := http.ParseTime(retryAfter); err == nil {
+		if duration := time.Until(t); duration > 0 {
+			return duration
+		}
+	}
+
+	return 0
+}
+
 // logRetry logs a retry attempt if a logger is configured
 func (c *Client) logRetry(req *http.Request, attempt, maxAttempts int, err error, backoff time.Duration) {
-	sleepDuration := c.calculateBackoff(attempt, backoff)
+	sleepDuration := calculateBackoff(attempt, backoff)
 	c.logWarn("Retrying registry request",
 		"method", req.Method,
 		"url", req.URL.String(),
@@ -125,6 +207,19 @@ func (c *Client) logRetry(req *http.Request, attempt, maxAttempts int, err error
 		"max_attempts", maxAttempts,
 		"reason", err.Error(),
 		"backoff", sleepDuration.String(),
+	)
+}
+
+// logRetryWithRetryAfter logs a retry attempt with Retry-After header if a logger is configured
+func (c *Client) logRetryWithRetryAfter(req *http.Request, attempt, maxAttempts int, err error, retryAfter time.Duration) {
+	c.logWarn("Retrying registry request",
+		"method", req.Method,
+		"url", req.URL.String(),
+		"attempt", attempt+1,
+		"max_attempts", maxAttempts,
+		"reason", err.Error(),
+		"retry_after", retryAfter.String(),
+		"source", "Retry-After header",
 	)
 }
 

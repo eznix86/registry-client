@@ -187,12 +187,11 @@ func TestClient_DoWithRetry_MaxRetriesExceeded(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.Error(t, err, "Expected error")
-	require.Nil(t, resp, "Response should be nil on error")
-	assert.Contains(t, err.Error(), "max retries exceeded")
+	require.NoError(t, err, "Should return response, not error")
+	require.NotNil(t, resp, "Response should contain the last status code")
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, "Should return actual status code from server")
 	assert.Equal(t, 3, attemptCount, "Expected 3 attempts")
 
 	assert.Len(t, logger.errorCalls, 1, "Expected 1 error log")
@@ -249,8 +248,6 @@ func TestClient_Backoff_Custom(t *testing.T) {
 }
 
 func TestClient_IsRetryableStatus(t *testing.T) {
-	client := &Client{}
-
 	tests := []struct {
 		statusCode int
 		retryable  bool
@@ -270,13 +267,12 @@ func TestClient_IsRetryableStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("status_%d", tt.statusCode), func(t *testing.T) {
-			assert.Equal(t, tt.retryable, client.isRetryableStatus(tt.statusCode))
+			assert.Equal(t, tt.retryable, isRetryableStatus(tt.statusCode))
 		})
 	}
 }
 
 func TestClient_CalculateBackoff(t *testing.T) {
-	client := &Client{}
 	baseBackoff := 100 * time.Millisecond
 
 	tests := []struct {
@@ -292,7 +288,7 @@ func TestClient_CalculateBackoff(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("attempt_%d", tt.attempt), func(t *testing.T) {
-			assert.Equal(t, tt.expected, client.calculateBackoff(tt.attempt, baseBackoff))
+			assert.Equal(t, tt.expected, calculateBackoff(tt.attempt, baseBackoff))
 		})
 	}
 }
@@ -382,12 +378,11 @@ func TestClient_DoWithRetry_ExponentialBackoff(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.Error(t, err, "Expected error from all failed attempts")
-	require.Nil(t, resp, "Response should be nil on error")
+	require.NoError(t, err, "Should return response with status code")
+	require.NotNil(t, resp, "Response should contain the last status code")
+	defer func() { _ = resp.Body.Close() }()
 
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, "Should return actual status code from server")
 	require.Len(t, attemptTimes, 3, "Expected 3 attempts")
 
 	// Verify exponential backoff timing
@@ -410,4 +405,170 @@ type errorCloser struct {
 
 func (e *errorCloser) Close() error {
 	return e.err
+}
+
+func TestParseRetryAfter_Seconds(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		expected time.Duration
+	}{
+		{name: "valid seconds", header: "120", expected: 120 * time.Second},
+		{name: "zero seconds", header: "0", expected: 0},
+		{name: "negative seconds", header: "-10", expected: 0},
+		{name: "empty header", header: "", expected: 0},
+		{name: "invalid format", header: "invalid", expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{
+				Header: http.Header{},
+			}
+			if tt.header != "" {
+				resp.Header.Set("Retry-After", tt.header)
+			}
+
+			duration := parseRetryAfter(resp)
+			assert.Equal(t, tt.expected, duration)
+		})
+	}
+}
+
+func TestParseRetryAfter_HTTPDate(t *testing.T) {
+	// Test with a future date using UTC to avoid timezone issues
+	futureTime := time.Now().UTC().Add(30 * time.Second)
+	httpDate := futureTime.Format(http.TimeFormat)
+
+	resp := &http.Response{
+		Header: http.Header{},
+	}
+	resp.Header.Set("Retry-After", httpDate)
+
+	duration := parseRetryAfter(resp)
+
+	// Allow some tolerance for test execution time (25-35 seconds)
+	assert.GreaterOrEqual(t, duration, 25*time.Second, "Duration too short")
+	assert.LessOrEqual(t, duration, 35*time.Second, "Duration too long")
+}
+
+func TestParseRetryAfter_PastDate(t *testing.T) {
+	// Test with a past date (should return 0) using UTC to avoid timezone issues
+	pastTime := time.Now().UTC().Add(-30 * time.Second)
+	httpDate := pastTime.Format(http.TimeFormat)
+
+	resp := &http.Response{
+		Header: http.Header{},
+	}
+	resp.Header.Set("Retry-After", httpDate)
+
+	duration := parseRetryAfter(resp)
+	assert.Equal(t, time.Duration(0), duration)
+}
+
+func TestClient_DoWithRetry_RetryAfterSeconds(t *testing.T) {
+	attemptCount := 0
+	attemptTimes := []time.Time{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		attemptTimes = append(attemptTimes, time.Now())
+
+		if attemptCount < 3 {
+			w.Header().Set("Retry-After", "1") // 1 second
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	logger := &mockLogger{}
+	client := &Client{
+		BaseURL:      server.URL,
+		MaxAttempts:  3,
+		RetryBackoff: 100 * time.Millisecond, // Should be overridden by Retry-After
+		Logger:       logger,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+
+	assert.Equal(t, 3, attemptCount, "Expected 3 attempts")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify Retry-After was respected (should be ~1 second, not 100ms)
+	require.Len(t, attemptTimes, 3)
+	firstDelay := attemptTimes[1].Sub(attemptTimes[0])
+
+	// Allow some tolerance for timing
+	assert.GreaterOrEqual(t, firstDelay, 900*time.Millisecond, "Retry-After not respected")
+	assert.LessOrEqual(t, firstDelay, 1200*time.Millisecond, "Delay too long")
+
+	// Verify logging mentions Retry-After
+	require.Len(t, logger.warnCalls, 2)
+	// Check that at least one log contains retry_after
+	hasRetryAfter := false
+	for _, call := range logger.warnCalls {
+		for i := 0; i < len(call.args); i += 2 {
+			if i+1 < len(call.args) && call.args[i] == "source" {
+				if call.args[i+1] == "Retry-After header" {
+					hasRetryAfter = true
+					break
+				}
+			}
+		}
+	}
+	assert.True(t, hasRetryAfter, "Expected Retry-After to be logged")
+}
+
+func TestClient_DoWithRetry_NoRetryAfter(t *testing.T) {
+	attemptCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount < 2 {
+			// No Retry-After header - should use exponential backoff
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	logger := &mockLogger{}
+	client := &Client{
+		BaseURL:      server.URL,
+		MaxAttempts:  2,
+		RetryBackoff: 50 * time.Millisecond,
+		Logger:       logger,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+
+	assert.Equal(t, 2, attemptCount, "Expected 2 attempts")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify standard backoff was used (not Retry-After)
+	require.Len(t, logger.warnCalls, 1)
+	call := logger.warnCalls[0]
+
+	// Check that it logged "backoff" not "retry_after"
+	hasBackoff := false
+	for i := 0; i < len(call.args); i += 2 {
+		if i+1 < len(call.args) && call.args[i] == "backoff" {
+			hasBackoff = true
+			break
+		}
+	}
+	assert.True(t, hasBackoff, "Expected backoff to be logged")
 }
