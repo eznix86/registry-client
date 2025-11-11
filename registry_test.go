@@ -706,6 +706,17 @@ func TestHasManifest_InvalidBaseURL(t *testing.T) {
 	assert.False(t, exists)
 }
 
+func TestHasManifest_NetworkError(t *testing.T) {
+	client := &Client{
+		BaseURL: "http://example.com",
+	}
+	client.Transport = &fakeRoundTripper{}
+	exists, err := client.HasManifest(context.Background(), "repo", "tag")
+
+	require.Error(t, err)
+	assert.False(t, exists)
+}
+
 func TestHasManifest_UnexpectedStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot) // 418 - Unexpected status
@@ -810,6 +821,17 @@ func TestDeleteManifest_NetworkError(t *testing.T) {
 
 func TestHasBlob_InvalidBaseURL(t *testing.T) {
 	client := &Client{BaseURL: "://invalid-url"}
+	exists, err := client.HasBlob(context.Background(), "repo", "digest")
+
+	require.Error(t, err)
+	assert.False(t, exists)
+}
+
+func TestHasBlob_NetworkError(t *testing.T) {
+	client := &Client{
+		BaseURL: "http://example.com",
+	}
+	client.Transport = &fakeRoundTripper{}
 	exists, err := client.HasBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)

@@ -82,9 +82,6 @@ func parseLinkHeader(linkHeader string) PaginatedResponse {
 
 	// Parse the link header
 	parts := strings.Split(linkHeader, ";")
-	if len(parts) < 1 {
-		return PaginatedResponse{}
-	}
 
 	// Extract URL from <...>
 	urlPart := strings.TrimSpace(parts[0])
