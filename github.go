@@ -97,6 +97,39 @@ func (gc *GitHubClient) GetCatalog(ctx context.Context, pagination *PaginationPa
 	}, nil
 }
 
+// DeleteManifest deletes a manifest by finding its package version and deleting it.
+// reference can be either a tag name (e.g., "latest", "v1.2.3") or a digest (e.g., "sha256:abc123...").
+// This overrides the standard registry DeleteManifest which doesn't work on GitHub Container Registry.
+func (gc *GitHubClient) DeleteManifest(ctx context.Context, repository, reference string) error {
+	parts := strings.Split(repository, "/")
+	packageName := parts[len(parts)-1]
+
+	gc.logDebug("GitHub delete manifest",
+		"operation", "DeleteManifest",
+		"repository", repository,
+		"package", packageName,
+		"reference", reference,
+	)
+
+	versionID, err := gc.findPackageVersionID(ctx, packageName, reference)
+	if err != nil {
+		return err
+	}
+
+	if err := gc.deletePackageVersion(ctx, packageName, versionID); err != nil {
+		return err
+	}
+
+	gc.logDebug("GitHub delete manifest success",
+		"operation", "DeleteManifest",
+		"repository", repository,
+		"reference", reference,
+		"version_id", versionID,
+	)
+
+	return nil
+}
+
 func buildGitHubPackagesRequest(ctx context.Context, apiURL, token string, pagination *PaginationParams) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -117,6 +150,8 @@ func buildGitHubPackagesRequest(ctx context.Context, apiURL, token string, pagin
 
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	return req, nil
 }
 
@@ -196,6 +231,139 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 		Packages:          packages,
 		PaginatedResponse: paginationResp,
 	}, nil
+}
+
+func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName string, pagination *PaginationParams) ([]GitHubPackageVersion, error) {
+	var apiURL string
+	if gc.Type == GitHubOrg {
+		apiURL = fmt.Sprintf("%s/orgs/%s/packages/container/%s/versions", gc.api.(*githubPackagesAPI).baseURL, gc.Organization, packageName)
+	} else {
+		apiURL = fmt.Sprintf("%s/user/packages/container/%s/versions", gc.api.(*githubPackagesAPI).baseURL, packageName)
+	}
+
+	logArgs := []any{"operation", "listPackageVersions", "method", http.MethodGet, "package", packageName, "url", apiURL}
+	if pagination != nil {
+		logArgs = append(logArgs, "page_size", pagination.N, "page", pagination.Last)
+	}
+	gc.logDebug("GitHub API request", logArgs...)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	q := req.URL.Query()
+	q.Add("state", "active")
+	if pagination != nil {
+		if pagination.N > 0 {
+			q.Add("per_page", fmt.Sprintf("%d", pagination.N))
+		}
+		if pagination.Last != "" {
+			q.Add("page", pagination.Last)
+		}
+	}
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Authorization", "Bearer "+gc.APIToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := gc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer gc.closeBody(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list package versions failed: %s - %s", resp.Status, string(body))
+	}
+
+	var versions []GitHubPackageVersion
+	if err := json.NewDecoder(resp.Body).Decode(&versions); err != nil {
+		return nil, err
+	}
+
+	gc.logDebug("GitHub API response", "operation", "listPackageVersions", "package", packageName, "version_count", len(versions))
+	return versions, nil
+}
+
+//nolint:funlen // complex pagination and search logic
+func (gc *GitHubClient) findPackageVersionID(ctx context.Context, packageName, reference string) (int, error) {
+	isDigest := strings.HasPrefix(reference, "sha256:")
+	page := 1
+
+	for {
+		versions, err := gc.listPackageVersions(ctx, packageName, &PaginationParams{N: 100, Last: fmt.Sprintf("%d", page)})
+		if err != nil {
+			return 0, err
+		}
+
+		if len(versions) == 0 {
+			break
+		}
+
+		for _, v := range versions {
+			if isDigest {
+				if v.Name == reference {
+					gc.logDebug("Found package version by digest", "package", packageName, "reference", reference, "version_id", v.ID)
+					return v.ID, nil
+				}
+			} else {
+				for _, tag := range v.Metadata.Container.Tags {
+					if tag == reference {
+						gc.logDebug("Found package version by tag", "package", packageName, "reference", reference, "version_id", v.ID)
+						return v.ID, nil
+					}
+				}
+			}
+		}
+
+		if len(versions) < 100 {
+			break
+		}
+		page++
+	}
+
+	return 0, fmt.Errorf("package version not found for reference: %s", reference)
+}
+
+func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName string, versionID int) error {
+	var apiURL string
+	if gc.Type == GitHubOrg {
+		apiURL = fmt.Sprintf("%s/orgs/%s/packages/container/%s/versions/%d", gc.api.(*githubPackagesAPI).baseURL, gc.Organization, packageName, versionID)
+	} else {
+		apiURL = fmt.Sprintf("%s/user/packages/container/%s/versions/%d", gc.api.(*githubPackagesAPI).baseURL, packageName, versionID)
+	}
+
+	gc.logDebug("GitHub API request", "operation", "deletePackageVersion", "method", http.MethodDelete, "package", packageName, "version_id", versionID, "url", apiURL)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, apiURL, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+gc.APIToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := gc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer gc.closeBody(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		gc.logDebug("GitHub API response", "operation", "deletePackageVersion", "package", packageName, "version_id", versionID, "status", "success")
+		return nil
+	case http.StatusForbidden:
+		return fmt.Errorf("cannot delete package version: insufficient permissions or package has >5,000 downloads")
+	case http.StatusNotFound:
+		return fmt.Errorf("package version not found")
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete package version failed: %s - %s", resp.Status, string(body))
+	}
 }
 
 func parseGitHubLinkURL(linkURL string) (page string, pageSize int) {

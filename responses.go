@@ -60,3 +60,20 @@ type GitHubPackagesResponse struct {
 	Packages []GitHubPackage
 	PaginatedResponse
 }
+
+// GitHubPackageVersion represents a GitHub package version
+type GitHubPackageVersion struct {
+	ID       int                   `json:"id"`
+	Name     string                `json:"name"`
+	Metadata GitHubPackageMetadata `json:"metadata"`
+}
+
+// GitHubPackageMetadata contains package metadata
+type GitHubPackageMetadata struct {
+	Container GitHubContainerMetadata `json:"container"`
+}
+
+// GitHubContainerMetadata contains container-specific metadata
+type GitHubContainerMetadata struct {
+	Tags []string `json:"tags"`
+}

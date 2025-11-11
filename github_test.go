@@ -703,3 +703,387 @@ func TestGithubPackagesAPI_GetOrgPackages(t *testing.T) {
 		})
 	}
 }
+
+//nolint:funlen // table-driven test with test server
+func TestGitHubClient_DeleteManifest_User(t *testing.T) {
+	tests := []struct {
+		name          string
+		repository    string
+		reference     string
+		setupServer   func(w http.ResponseWriter, r *http.Request)
+		wantErr       bool
+		wantErrSubstr string
+	}{
+		{
+			name:       "delete by tag success",
+			repository: "user/my-app",
+			reference:  "v1.0.0",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/user/packages/container/my-app/versions":
+					versions := []GitHubPackageVersion{
+						{
+							ID:   12345,
+							Name: "sha256:abc123",
+							Metadata: GitHubPackageMetadata{
+								Container: GitHubContainerMetadata{
+									Tags: []string{"v1.0.0", "latest"},
+								},
+							},
+						},
+					}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				case r.Method == http.MethodDelete && r.URL.Path == "/user/packages/container/my-app/versions/12345":
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name:       "delete by digest success",
+			repository: "user/my-app",
+			reference:  "sha256:abc123",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/user/packages/container/my-app/versions":
+					versions := []GitHubPackageVersion{
+						{
+							ID:   12345,
+							Name: "sha256:abc123",
+							Metadata: GitHubPackageMetadata{
+								Container: GitHubContainerMetadata{
+									Tags: []string{"v1.0.0"},
+								},
+							},
+						},
+					}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				case r.Method == http.MethodDelete && r.URL.Path == "/user/packages/container/my-app/versions/12345":
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name:       "version not found",
+			repository: "user/my-app",
+			reference:  "nonexistent",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					versions := []GitHubPackageVersion{}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				}
+			},
+			wantErr:       true,
+			wantErrSubstr: "package version not found for reference",
+		},
+		{
+			name:       "delete forbidden",
+			repository: "user/my-app",
+			reference:  "v1.0.0",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					versions := []GitHubPackageVersion{
+						{
+							ID:   12345,
+							Name: "sha256:abc123",
+							Metadata: GitHubPackageMetadata{
+								Container: GitHubContainerMetadata{
+									Tags: []string{"v1.0.0"},
+								},
+							},
+						},
+					}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				case http.MethodDelete:
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"message":"forbidden"}`))
+				}
+			},
+			wantErr:       true,
+			wantErrSubstr: "insufficient permissions",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				tt.setupServer(w, r)
+			}))
+			defer server.Close()
+
+			client := NewGitHubClient("test-token")
+			client.api = &githubPackagesAPI{
+				client:   client.Client,
+				apiToken: "test-token",
+				baseURL:  server.URL,
+			}
+
+			err := client.DeleteManifest(context.Background(), tt.repository, tt.reference)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrSubstr != "" {
+					assert.Contains(t, err.Error(), tt.wantErrSubstr)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+//nolint:funlen // table-driven test with test server
+func TestGitHubClient_DeleteManifest_Org(t *testing.T) {
+	tests := []struct {
+		name          string
+		repository    string
+		reference     string
+		setupServer   func(w http.ResponseWriter, r *http.Request)
+		wantErr       bool
+		wantErrSubstr string
+	}{
+		{
+			name:       "delete by tag success",
+			repository: "org/my-app",
+			reference:  "latest",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/orgs/myorg/packages/container/my-app/versions":
+					versions := []GitHubPackageVersion{
+						{
+							ID:   67890,
+							Name: "sha256:def456",
+							Metadata: GitHubPackageMetadata{
+								Container: GitHubContainerMetadata{
+									Tags: []string{"latest"},
+								},
+							},
+						},
+					}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				case r.Method == http.MethodDelete && r.URL.Path == "/orgs/myorg/packages/container/my-app/versions/67890":
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name:       "version not found",
+			repository: "org/my-app",
+			reference:  "v2.0.0",
+			setupServer: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					versions := []GitHubPackageVersion{
+						{
+							ID:   67890,
+							Name: "sha256:def456",
+							Metadata: GitHubPackageMetadata{
+								Container: GitHubContainerMetadata{
+									Tags: []string{"v1.0.0"},
+								},
+							},
+						},
+					}
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(versions)
+				}
+			},
+			wantErr:       true,
+			wantErrSubstr: "package version not found for reference",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				tt.setupServer(w, r)
+			}))
+			defer server.Close()
+
+			client := NewGitHubOrgClient("test-token", "myorg")
+			client.api = &githubPackagesAPI{
+				client:   client.Client,
+				apiToken: "test-token",
+				baseURL:  server.URL,
+			}
+
+			err := client.DeleteManifest(context.Background(), tt.repository, tt.reference)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrSubstr != "" {
+					assert.Contains(t, err.Error(), tt.wantErrSubstr)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+//nolint:funlen
+func TestGitHubClient_FindPackageVersionID_Pagination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.WriteHeader(http.StatusOK)
+
+		switch page {
+		case "1", "":
+			versions := make([]GitHubPackageVersion, 100)
+			for i := range 100 {
+				versions[i] = GitHubPackageVersion{
+					ID:   i + 1,
+					Name: fmt.Sprintf("sha256:hash%d", i),
+					Metadata: GitHubPackageMetadata{
+						Container: GitHubContainerMetadata{
+							Tags: []string{fmt.Sprintf("v1.%d.0", i)},
+						},
+					},
+				}
+			}
+			_ = json.NewEncoder(w).Encode(versions)
+		case "2":
+			versions := []GitHubPackageVersion{
+				{
+					ID:   201,
+					Name: "sha256:target",
+					Metadata: GitHubPackageMetadata{
+						Container: GitHubContainerMetadata{
+							Tags: []string{"target-tag"},
+						},
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(versions)
+		default:
+			_ = json.NewEncoder(w).Encode([]GitHubPackageVersion{})
+		}
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	versionID, err := client.findPackageVersionID(context.Background(), "my-app", "target-tag")
+	require.NoError(t, err)
+	assert.Equal(t, 201, versionID)
+}
+
+func TestGitHubClient_ListPackageVersions_NetworkError(t *testing.T) {
+	client := NewGitHubClient("test-token")
+	client.Transport = &fakeRoundTripper{}
+
+	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
+	require.Error(t, err)
+}
+
+func TestGitHubClient_FindPackageVersionID_NetworkError(t *testing.T) {
+	client := NewGitHubClient("test-token")
+	client.Transport = &fakeRoundTripper{}
+
+	_, err := client.findPackageVersionID(context.Background(), "my-app", "v1.0.0")
+	require.Error(t, err)
+}
+
+func TestGitHubClient_DeletePackageVersion_NetworkError(t *testing.T) {
+	client := NewGitHubClient("test-token")
+	client.Transport = &fakeRoundTripper{}
+
+	err := client.deletePackageVersion(context.Background(), "my-app", 123)
+	require.Error(t, err)
+}
+
+func TestGitHubClient_ListPackageVersions_StatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "list package versions failed")
+}
+
+func TestGitHubClient_ListPackageVersions_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`invalid json`))
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
+	require.Error(t, err)
+}
+
+func TestGitHubClient_DeletePackageVersion_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	err := client.deletePackageVersion(context.Background(), "my-app", 123)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "package version not found")
+}
+
+func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"internal error"}`))
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("test-token")
+	client.api = &githubPackagesAPI{
+		client:   client.Client,
+		apiToken: "test-token",
+		baseURL:  server.URL,
+	}
+
+	err := client.deletePackageVersion(context.Background(), "my-app", 123)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete package version failed")
+}
