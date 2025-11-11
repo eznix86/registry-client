@@ -276,7 +276,6 @@ func TestGetManifest(t *testing.T) {
 // testResourceExists is a helper to test HEAD request endpoints (HasManifest, HasBlob)
 func testResourceExists(
 	t *testing.T,
-	expectedPath string,
 	checkFunc func(*Client, context.Context, string, string) (bool, error),
 ) {
 	t.Helper()
@@ -315,7 +314,7 @@ func testResourceExists(
 }
 
 func TestHasManifest(t *testing.T) {
-	testResourceExists(t, "/v2/myrepo/manifests/v1.0", func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
+	testResourceExists(t, func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
 		return c.HasManifest(ctx, repo, ref)
 	})
 }
@@ -446,7 +445,7 @@ func TestDeleteManifest(t *testing.T) {
 }
 
 func TestHasBlob(t *testing.T) {
-	testResourceExists(t, "/v2/myrepo/blobs/v1.0", func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
+	testResourceExists(t, func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
 		return c.HasBlob(ctx, repo, ref)
 	})
 }
