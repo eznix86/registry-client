@@ -328,7 +328,7 @@ func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName str
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The Authorization header was already set with the correct raw token
-	resp, err := gc.BaseClient.HTTPClient.Do(req)
+	resp, err := gc.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +411,7 @@ func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName st
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The Authorization header was already set with the correct raw token
-	resp, err := gc.BaseClient.HTTPClient.Do(req)
+	resp, err := gc.HTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

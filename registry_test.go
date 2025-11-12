@@ -619,7 +619,7 @@ func TestHealthCheck_InvalidBaseURL(t *testing.T) {
 func TestHealthCheck_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	statusCode, err := client.HealthCheck(context.Background())
@@ -638,7 +638,7 @@ func TestHealthCheck_ConnectionRefused(t *testing.T) {
 
 func TestHealthCheck_ConnectionRefusedWithRetries(t *testing.T) {
 	client := &BaseClient{
-		HTTPClient: &http.Client{},
+		HTTPClient:   &http.Client{},
 		BaseURL:      "http://localhost:9999",
 		MaxAttempts:  3, // Will try 3 times
 		RetryBackoff: 200 * time.Millisecond,
@@ -661,7 +661,7 @@ func TestGetCatalog_InvalidBaseURL(t *testing.T) {
 func TestGetCatalog_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetCatalog(context.Background(), nil)
@@ -695,7 +695,7 @@ func TestGetManifest_InvalidBaseURL(t *testing.T) {
 func TestGetManifest_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetManifest(context.Background(), "repo", "tag")
@@ -734,7 +734,7 @@ func TestHasManifest_InvalidBaseURL(t *testing.T) {
 func TestHasManifest_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	exists, err := client.HasManifest(context.Background(), "repo", "tag")
@@ -768,7 +768,7 @@ func TestGetBlob_InvalidBaseURL(t *testing.T) {
 func TestGetBlob_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetBlob(context.Background(), "repo", "digest")
@@ -807,7 +807,7 @@ func TestListTags_InvalidBaseURL(t *testing.T) {
 func TestListTags_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.ListTags(context.Background(), "repo", nil)
@@ -840,7 +840,7 @@ func TestDeleteManifest_InvalidBaseURL(t *testing.T) {
 func TestDeleteManifest_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	err := client.DeleteManifest(context.Background(), "repo", "digest")
@@ -859,7 +859,7 @@ func TestHasBlob_InvalidBaseURL(t *testing.T) {
 func TestHasBlob_NetworkError(t *testing.T) {
 	client := &BaseClient{
 		HTTPClient: &http.Client{},
-		BaseURL: "http://example.com",
+		BaseURL:    "http://example.com",
 	}
 	client.HTTPClient.Transport = &fakeRoundTripper{}
 	exists, err := client.HasBlob(context.Background(), "repo", "digest")
