@@ -76,8 +76,9 @@ func TestClient_Do_AppliesAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
-		BaseURL: server.URL,
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
+		BaseURL:    server.URL,
 		Auth: BasicAuth{
 			Username: "user",
 			Password: "pass",
@@ -101,8 +102,9 @@ func TestClient_Do_NoAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
-		BaseURL: server.URL,
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
+		BaseURL:    server.URL,
 	}
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -119,8 +121,9 @@ func TestClient_DoWithRetry_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
-		BaseURL: server.URL,
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
+		BaseURL:    server.URL,
 	}
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -146,7 +149,8 @@ func TestClient_DoWithRetry_RetryableError(t *testing.T) {
 	defer server.Close()
 
 	logger := &mockLogger{}
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  3,
 		RetryBackoff: 10 * time.Millisecond,
@@ -176,7 +180,8 @@ func TestClient_DoWithRetry_MaxRetriesExceeded(t *testing.T) {
 	defer server.Close()
 
 	logger := &mockLogger{}
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  3,
 		RetryBackoff: 10 * time.Millisecond,
@@ -209,7 +214,8 @@ func TestClient_DoWithRetry_TooManyRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  2,
 		RetryBackoff: 10 * time.Millisecond,
@@ -227,23 +233,23 @@ func TestClient_DoWithRetry_TooManyRequests(t *testing.T) {
 }
 
 func TestClient_MaxAttempts_Default(t *testing.T) {
-	client := &Client{}
+	client := &BaseClient{HTTPClient: &http.Client{}}
 	assert.Equal(t, 1, client.maxAttempts())
 }
 
 func TestClient_MaxAttempts_Custom(t *testing.T) {
-	client := &Client{MaxAttempts: 5}
+	client := &BaseClient{HTTPClient: &http.Client{}, MaxAttempts: 5}
 	assert.Equal(t, 5, client.maxAttempts())
 }
 
 func TestClient_Backoff_Default(t *testing.T) {
-	client := &Client{}
+	client := &BaseClient{HTTPClient: &http.Client{}}
 	assert.Equal(t, 100*time.Millisecond, client.backoff())
 }
 
 func TestClient_Backoff_Custom(t *testing.T) {
 	customBackoff := 500 * time.Millisecond
-	client := &Client{RetryBackoff: customBackoff}
+	client := &BaseClient{HTTPClient: &http.Client{}, RetryBackoff: customBackoff}
 	assert.Equal(t, customBackoff, client.backoff())
 }
 
@@ -295,7 +301,7 @@ func TestClient_CalculateBackoff(t *testing.T) {
 
 func TestClient_CloseBody(t *testing.T) {
 	logger := &mockLogger{}
-	client := &Client{Logger: logger}
+	client := &BaseClient{HTTPClient: &http.Client{}, Logger: logger}
 
 	body := io.NopCloser(strings.NewReader("test"))
 	client.closeBody(body)
@@ -305,7 +311,7 @@ func TestClient_CloseBody(t *testing.T) {
 
 func TestClient_CloseBody_Error(t *testing.T) {
 	logger := &mockLogger{}
-	client := &Client{Logger: logger}
+	client := &BaseClient{HTTPClient: &http.Client{}, Logger: logger}
 
 	// Test close with error
 	errBody := &errorCloser{err: fmt.Errorf("close error")}
@@ -318,7 +324,7 @@ func TestClient_CloseBody_Error(t *testing.T) {
 
 func TestClient_LogDebug(t *testing.T) {
 	logger := &mockLogger{}
-	client := &Client{Logger: logger}
+	client := &BaseClient{HTTPClient: &http.Client{}, Logger: logger}
 
 	client.logDebug("test message", "key1", "value1", "key2", 123)
 
@@ -329,7 +335,7 @@ func TestClient_LogDebug(t *testing.T) {
 }
 
 func TestClient_LogDebug_NoLogger(t *testing.T) {
-	client := &Client{}
+	client := &BaseClient{HTTPClient: &http.Client{}}
 
 	// Should not panic when logger is nil
 	assert.NotPanics(t, func() {
@@ -339,7 +345,7 @@ func TestClient_LogDebug_NoLogger(t *testing.T) {
 
 func TestClient_LogWarn(t *testing.T) {
 	logger := &mockLogger{}
-	client := &Client{Logger: logger}
+	client := &BaseClient{HTTPClient: &http.Client{}, Logger: logger}
 
 	client.logWarn("warning message", "key", "value")
 
@@ -349,7 +355,7 @@ func TestClient_LogWarn(t *testing.T) {
 
 func TestClient_LogError(t *testing.T) {
 	logger := &mockLogger{}
-	client := &Client{Logger: logger}
+	client := &BaseClient{HTTPClient: &http.Client{}, Logger: logger}
 
 	client.logError("error message", "key", "value")
 
@@ -368,7 +374,8 @@ func TestClient_DoWithRetry_ExponentialBackoff(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  3,
 		RetryBackoff: 50 * time.Millisecond,
@@ -484,7 +491,8 @@ func TestClient_DoWithRetry_RetryAfterSeconds(t *testing.T) {
 	defer server.Close()
 
 	logger := &mockLogger{}
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  3,
 		RetryBackoff: 100 * time.Millisecond, // Should be overridden by Retry-After
@@ -541,7 +549,8 @@ func TestClient_DoWithRetry_NoRetryAfter(t *testing.T) {
 	defer server.Close()
 
 	logger := &mockLogger{}
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient:   &http.Client{},
 		BaseURL:      server.URL,
 		MaxAttempts:  2,
 		RetryBackoff: 50 * time.Millisecond,

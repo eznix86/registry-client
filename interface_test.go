@@ -2,6 +2,7 @@ package registryclient
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,7 +10,7 @@ import (
 
 func TestRegistryClient_Interface(t *testing.T) {
 	t.Run("Client implements RegistryClient", func(t *testing.T) {
-		var _ RegistryClient = &Client{}
+		var _ RegistryClient = &BaseClient{HTTPClient: &http.Client{}}
 	})
 
 	t.Run("GitHubClient implements RegistryClient", func(t *testing.T) {
@@ -24,8 +25,9 @@ func TestRegistryClient_Polymorphism(t *testing.T) {
 	}{
 		{
 			name: "standard registry client",
-			client: &Client{
-				BaseURL: "https://registry-1.docker.io",
+			client: &BaseClient{
+				HTTPClient: &http.Client{},
+				BaseURL:    "https://registry-1.docker.io",
 			},
 		},
 		{

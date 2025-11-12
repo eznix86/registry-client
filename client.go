@@ -39,18 +39,19 @@ func (b BearerAuth) Apply(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+b.Token)
 }
 
-// Client wraps http.Client with registry-specific configuration
-type Client struct {
-	http.Client
-	BaseURL      string
-	Auth         Auth
-	RetryBackoff time.Duration // Initial backoff duration for retries
-	MaxAttempts  int           // Maximum number of retry attempts (0 = no retries)
-	Logger       Logger        // Optional logger (nil = no logging)
+// BaseClient wraps http.Client with registry-specific configuration
+type BaseClient struct {
+	HTTPClient    *http.Client  // HTTP client for making requests
+	BaseURL       string
+	Auth          Auth
+	RetryBackoff  time.Duration // Initial backoff duration for retries
+	MaxAttempts   int           // Maximum number of retry attempts (0 = no retries)
+	Logger        Logger        // Optional logger (nil = no logging)
+	DisableDelete bool          // When true, delete operations will only log and not execute
 }
 
 // Do applies auth before performing the request with retry logic
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
+func (c *BaseClient) Do(req *http.Request) (*http.Response, error) {
 	if c.Auth != nil {
 		c.Auth.Apply(req)
 	}
@@ -64,13 +65,13 @@ type retryState struct {
 }
 
 // doWithRetry executes the request with exponential backoff retry logic
-func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
+func (c *BaseClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	maxAttempts := c.maxAttempts()
 	backoff := c.backoff()
 	state := &retryState{}
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		resp, err := c.Client.Do(req)
+		resp, err := c.HTTPClient.Do(req)
 
 		if shouldReturnImmediately(resp, err) {
 			return resp, nil
@@ -97,7 +98,7 @@ func shouldReturnImmediately(resp *http.Response, err error) bool {
 }
 
 // updateRetryState updates the retry state with the latest response/error
-func (c *Client) updateRetryState(state *retryState, resp *http.Response, err error) {
+func (c *BaseClient) updateRetryState(state *retryState, resp *http.Response, err error) {
 	if err == nil {
 		// Close previous response body if exists
 		if state.lastResp != nil {
@@ -126,7 +127,7 @@ func getRetryDelay(resp *http.Response, attempt int, backoff time.Duration) time
 }
 
 // logRetryAttempt logs the retry attempt with appropriate context
-func (c *Client) logRetryAttempt(req *http.Request, attempt, maxAttempts int, err error, sleepDuration time.Duration, resp *http.Response) {
+func (c *BaseClient) logRetryAttempt(req *http.Request, attempt, maxAttempts int, err error, sleepDuration time.Duration, resp *http.Response) {
 	if resp != nil && parseRetryAfter(resp) > 0 {
 		c.logRetryWithRetryAfter(req, attempt, maxAttempts, err, sleepDuration)
 	} else {
@@ -135,7 +136,7 @@ func (c *Client) logRetryAttempt(req *http.Request, attempt, maxAttempts int, er
 }
 
 // handleMaxRetriesExceeded handles the case when all retry attempts are exhausted
-func (c *Client) handleMaxRetriesExceeded(req *http.Request, maxAttempts int, state *retryState) (*http.Response, error) {
+func (c *BaseClient) handleMaxRetriesExceeded(req *http.Request, maxAttempts int, state *retryState) (*http.Response, error) {
 	c.logMaxRetriesExceeded(req, maxAttempts, state.lastErr)
 
 	// If we have a response with a retryable status, return it instead of error
@@ -147,7 +148,7 @@ func (c *Client) handleMaxRetriesExceeded(req *http.Request, maxAttempts int, st
 }
 
 // maxAttempts returns the maximum number of attempts (at least 1)
-func (c *Client) maxAttempts() int {
+func (c *BaseClient) maxAttempts() int {
 	if c.MaxAttempts <= 0 {
 		return 1
 	}
@@ -155,7 +156,7 @@ func (c *Client) maxAttempts() int {
 }
 
 // backoff returns the initial backoff duration with default fallback
-func (c *Client) backoff() time.Duration {
+func (c *BaseClient) backoff() time.Duration {
 	if c.RetryBackoff <= 0 {
 		return 100 * time.Millisecond
 	}
@@ -198,7 +199,7 @@ func parseRetryAfter(resp *http.Response) time.Duration {
 }
 
 // logRetry logs a retry attempt if a logger is configured
-func (c *Client) logRetry(req *http.Request, attempt, maxAttempts int, err error, backoff time.Duration) {
+func (c *BaseClient) logRetry(req *http.Request, attempt, maxAttempts int, err error, backoff time.Duration) {
 	sleepDuration := calculateBackoff(attempt, backoff)
 	c.logWarn("Retrying registry request",
 		"method", req.Method,
@@ -211,7 +212,7 @@ func (c *Client) logRetry(req *http.Request, attempt, maxAttempts int, err error
 }
 
 // logRetryWithRetryAfter logs a retry attempt with Retry-After header if a logger is configured
-func (c *Client) logRetryWithRetryAfter(req *http.Request, attempt, maxAttempts int, err error, retryAfter time.Duration) {
+func (c *BaseClient) logRetryWithRetryAfter(req *http.Request, attempt, maxAttempts int, err error, retryAfter time.Duration) {
 	c.logWarn("Retrying registry request",
 		"method", req.Method,
 		"url", req.URL.String(),
@@ -224,7 +225,7 @@ func (c *Client) logRetryWithRetryAfter(req *http.Request, attempt, maxAttempts 
 }
 
 // logMaxRetriesExceeded logs when max retries are exceeded if a logger is configured
-func (c *Client) logMaxRetriesExceeded(req *http.Request, maxAttempts int, err error) {
+func (c *BaseClient) logMaxRetriesExceeded(req *http.Request, maxAttempts int, err error) {
 	c.logError("Registry request max retries exceeded",
 		"method", req.Method,
 		"url", req.URL.String(),
@@ -234,28 +235,35 @@ func (c *Client) logMaxRetriesExceeded(req *http.Request, maxAttempts int, err e
 }
 
 // closeBody closes the response body and logs any error if a logger is configured
-func (c *Client) closeBody(body io.Closer) {
+func (c *BaseClient) closeBody(body io.Closer) {
 	if err := body.Close(); err != nil {
 		c.logDebug("Failed to close response body", "error", err.Error())
 	}
 }
 
 // logDebug logs a debug message if a logger is configured
-func (c *Client) logDebug(msg string, args ...any) {
+func (c *BaseClient) logDebug(msg string, args ...any) {
 	if c.Logger != nil {
 		c.Logger.Debug(msg, args...)
 	}
 }
 
+// logInfo logs an info message if a logger is configured
+func (c *BaseClient) logInfo(msg string, args ...any) {
+	if c.Logger != nil {
+		c.Logger.Info(msg, args...)
+	}
+}
+
 // logWarn logs a warning message if a logger is configured
-func (c *Client) logWarn(msg string, args ...any) {
+func (c *BaseClient) logWarn(msg string, args ...any) {
 	if c.Logger != nil {
 		c.Logger.Warn(msg, args...)
 	}
 }
 
 // logError logs an error message if a logger is configured
-func (c *Client) logError(msg string, args ...any) {
+func (c *BaseClient) logError(msg string, args ...any) {
 	if c.Logger != nil {
 		c.Logger.Error(msg, args...)
 	}

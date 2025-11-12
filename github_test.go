@@ -15,7 +15,7 @@ import (
 
 type mockPackagesAPI struct {
 	serverURL string
-	client    *Client
+	client    *BaseClient
 }
 
 func (m *mockPackagesAPI) getUserPackages(ctx context.Context, pagination *PaginationParams) (*GitHubPackagesResponse, error) {
@@ -41,7 +41,7 @@ func (m *mockPackagesAPI) getUserPackages(ctx context.Context, pagination *Pagin
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer test-token")
 
-	resp, err := m.client.Do(req)
+	resp, err := m.client.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (m *mockPackagesAPI) getOrgPackages(ctx context.Context, org string, pagina
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer test-token")
 
-	resp, err := m.client.Do(req)
+	resp, err := m.client.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 				callCount++
 				assert.Equal(t, "/user/packages", r.URL.Path)
 				assert.Equal(t, "container", r.URL.Query().Get("package_type"))
-				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
 				if tt.pagination != nil {
 					assert.Equal(t, "10", r.URL.Query().Get("per_page"))
@@ -218,7 +218,7 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 			client := NewGitHubClient("testuser", "test-token")
 			client.api = &mockPackagesAPI{
 				serverURL: server.URL,
-				client:    client.Client,
+				client:    client.BaseClient,
 			}
 
 			resp, err := client.GetCatalog(context.Background(), tt.pagination)
@@ -295,7 +295,7 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 				callCount++
 				assert.Contains(t, r.URL.Path, "/orgs/"+tt.org+"/packages")
 				assert.Equal(t, "container", r.URL.Query().Get("package_type"))
-				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
 				if tt.pagination != nil {
 					assert.Equal(t, "25", r.URL.Query().Get("per_page"))
@@ -327,7 +327,7 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 			client := NewGitHubOrgClient(tt.org, "test-token")
 			client.api = &mockPackagesAPI{
 				serverURL: server.URL,
-				client:    client.Client,
+				client:    client.BaseClient,
 			}
 
 			resp, err := client.GetCatalog(context.Background(), tt.pagination)
@@ -436,7 +436,7 @@ func TestParseGitHubLinkHeader(t *testing.T) {
 
 func TestGitHubClient_NetworkError(t *testing.T) {
 	client := NewGitHubClient("testuser", "test-token")
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	_, err := client.GetCatalog(context.Background(), nil)
 	require.Error(t, err)
@@ -452,7 +452,7 @@ func TestGitHubClient_InvalidJSON(t *testing.T) {
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &mockPackagesAPI{
 		serverURL: server.URL,
-		client:    client.Client,
+		client:    client.BaseClient,
 	}
 
 	_, err := client.GetCatalog(context.Background(), nil)
@@ -460,13 +460,13 @@ func TestGitHubClient_InvalidJSON(t *testing.T) {
 }
 
 func TestGithubPackagesAPI_GetUserPackages_NetworkError(t *testing.T) {
-	client := &Client{BaseURL: "http://example.com"}
-	client.Transport = &fakeRoundTripper{}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "http://example.com"}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	api := &githubPackagesAPI{
-		client:   client,
-		apiToken: "test-token",
-		baseURL:  "http://example.com",
+		baseClient: client,
+		apiToken:   "test-token",
+		baseURL:    "http://example.com",
 	}
 
 	_, err := api.getUserPackages(context.Background(), nil)
@@ -552,11 +552,11 @@ func TestGithubPackagesAPI_GetUserPackages(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			api := &githubPackagesAPI{
-				client:   client,
-				apiToken: "test-token",
-				baseURL:  server.URL,
+				baseClient: client,
+				apiToken:   "test-token",
+				baseURL:    server.URL,
 			}
 
 			resp, err := api.getUserPackages(context.Background(), tt.pagination)
@@ -584,13 +584,13 @@ func TestGithubPackagesAPI_GetUserPackages(t *testing.T) {
 }
 
 func TestGithubPackagesAPI_GetOrgPackages_NetworkError(t *testing.T) {
-	client := &Client{BaseURL: "http://example.com"}
-	client.Transport = &fakeRoundTripper{}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "http://example.com"}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	api := &githubPackagesAPI{
-		client:   client,
-		apiToken: "test-token",
-		baseURL:  "http://example.com",
+		baseClient: client,
+		apiToken:   "test-token",
+		baseURL:    "http://example.com",
 	}
 
 	_, err := api.getOrgPackages(context.Background(), "testorg", nil)
@@ -681,11 +681,11 @@ func TestGithubPackagesAPI_GetOrgPackages(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			api := &githubPackagesAPI{
-				client:   client,
-				apiToken: "test-token",
-				baseURL:  server.URL,
+				baseClient: client,
+				apiToken:   "test-token",
+				baseURL:    server.URL,
 			}
 
 			resp, err := api.getOrgPackages(context.Background(), tt.org, tt.pagination)
@@ -826,16 +826,16 @@ func TestGitHubClient_DeleteManifest_User(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 				tt.setupServer(w, r)
 			}))
 			defer server.Close()
 
 			client := NewGitHubClient("testuser", "test-token")
 			client.api = &githubPackagesAPI{
-				client:   client.Client,
-				apiToken: "test-token",
-				baseURL:  server.URL,
+				baseClient: client.BaseClient,
+				apiToken:   "test-token",
+				baseURL:    server.URL,
 			}
 
 			err := client.DeleteManifest(context.Background(), tt.repository, tt.reference)
@@ -921,16 +921,16 @@ func TestGitHubClient_DeleteManifest_Org(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 				tt.setupServer(w, r)
 			}))
 			defer server.Close()
 
 			client := NewGitHubOrgClient("myorg", "test-token")
 			client.api = &githubPackagesAPI{
-				client:   client.Client,
-				apiToken: "test-token",
-				baseURL:  server.URL,
+				baseClient: client.BaseClient,
+				apiToken:   "test-token",
+				baseURL:    server.URL,
 			}
 
 			err := client.DeleteManifest(context.Background(), tt.repository, tt.reference)
@@ -990,9 +990,9 @@ func TestGitHubClient_FindPackageVersionID_Pagination(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	versionID, err := client.findPackageVersionID(context.Background(), "my-app", "target-tag")
@@ -1002,7 +1002,7 @@ func TestGitHubClient_FindPackageVersionID_Pagination(t *testing.T) {
 
 func TestGitHubClient_ListPackageVersions_NetworkError(t *testing.T) {
 	client := NewGitHubClient("testuser", "test-token")
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
 	require.Error(t, err)
@@ -1010,7 +1010,7 @@ func TestGitHubClient_ListPackageVersions_NetworkError(t *testing.T) {
 
 func TestGitHubClient_FindPackageVersionID_NetworkError(t *testing.T) {
 	client := NewGitHubClient("testuser", "test-token")
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	_, err := client.findPackageVersionID(context.Background(), "my-app", "v1.0.0")
 	require.Error(t, err)
@@ -1018,7 +1018,7 @@ func TestGitHubClient_FindPackageVersionID_NetworkError(t *testing.T) {
 
 func TestGitHubClient_DeletePackageVersion_NetworkError(t *testing.T) {
 	client := NewGitHubClient("testuser", "test-token")
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 
 	err := client.deletePackageVersion(context.Background(), "my-app", 123)
 	require.Error(t, err)
@@ -1033,9 +1033,9 @@ func TestGitHubClient_ListPackageVersions_StatusError(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
@@ -1052,9 +1052,9 @@ func TestGitHubClient_ListPackageVersions_InvalidJSON(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
@@ -1069,9 +1069,9 @@ func TestGitHubClient_DeletePackageVersion_NotFound(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	err := client.deletePackageVersion(context.Background(), "my-app", 123)
@@ -1088,9 +1088,9 @@ func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	err := client.deletePackageVersion(context.Background(), "my-app", 123)
@@ -1129,9 +1129,9 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 
 	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	err := client.DeleteManifest(context.Background(), "eznix86/textbee/api", "v2.0.0")
@@ -1169,11 +1169,44 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
 
 	client := NewGitHubOrgClient("acme", "test-token")
 	client.api = &githubPackagesAPI{
-		client:   client.Client,
-		apiToken: "test-token",
-		baseURL:  server.URL,
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
 	}
 
 	err := client.DeleteManifest(context.Background(), "acme/mycompany/backend/service", "prod")
 	require.NoError(t, err)
+}
+
+func TestGitHubClient_DeleteManifest_DisableDelete(t *testing.T) {
+	// Track if delete endpoint was called
+	deleteCalled := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/packages/container/my-app/versions":
+			// Return a version list
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"id": 12345, "name": "sha256:abc123", "metadata": {"container": {"tags": ["latest"]}}}]`))
+		case r.Method == http.MethodDelete:
+			deleteCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewGitHubClient("testuser", "test-token")
+	client.DisableDelete = true
+	client.api = &githubPackagesAPI{
+		baseClient: client.BaseClient,
+		apiToken:   "test-token",
+		baseURL:    server.URL,
+	}
+
+	// Should not actually call delete
+	err := client.DeleteManifest(context.Background(), "testuser/my-app", "latest")
+	require.NoError(t, err)
+	assert.False(t, deleteCalled, "DELETE should not have been called when DisableDelete is true")
 }
