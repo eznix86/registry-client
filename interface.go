@@ -38,6 +38,6 @@ type RegistryClient interface {
 
 // Compile-time interface compliance checks
 var (
-	_ RegistryClient = (*Client)(nil)
+	_ RegistryClient = (*BaseClient)(nil)
 	_ RegistryClient = (*GitHubClient)(nil)
 )

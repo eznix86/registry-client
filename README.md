@@ -21,6 +21,7 @@ Used by [Docker Registry UI](https://github.com/eznix86/docker-registry-ui)
 - Optional logging interface
 - Health check endpoint
 - GitHub Container Registry support (user and organization packages)
+- Safe delete operations with `DisableDelete` flag for testing
 
 ## Installation
 
@@ -33,11 +34,15 @@ go get github.com/eznix86/registry-client
 ### Basic Setup
 
 ```go
-import registryclient "github.com/eznix86/registry-client"
+import (
+    "net/http"
+    registryclient "github.com/eznix86/registry-client"
+)
 
 // Create a client with basic authentication
-client := &registryclient.Client{
-    BaseURL: "https://registry.example.com",
+client := &registryclient.BaseClient{
+    HTTPClient: &http.Client{},
+    BaseURL:    "https://registry.example.com",
     Auth: registryclient.BasicAuth{
         Username: "user",
         Password: "pass",
@@ -45,8 +50,9 @@ client := &registryclient.Client{
 }
 
 // Or with bearer token
-client := &registryclient.Client{
-    BaseURL: "https://registry.example.com",
+client := &registryclient.BaseClient{
+    HTTPClient: &http.Client{},
+    BaseURL:    "https://registry.example.com",
     Auth: registryclient.BearerAuth{
         Token: "your-token",
     },
@@ -56,7 +62,8 @@ client := &registryclient.Client{
 ### Configuration Options
 
 ```go
-client := &registryclient.Client{
+client := &registryclient.BaseClient{
+    HTTPClient:   &http.Client{},
     BaseURL:      "https://registry.example.com",
     Auth:         auth,
     RetryBackoff: 200 * time.Millisecond,  // Initial backoff duration
@@ -177,6 +184,22 @@ if err != nil {
 }
 ```
 
+#### Safe Delete Testing
+
+Use `DisableDelete` flag to test delete operations without actually deleting resources:
+
+```go
+client := &registryclient.BaseClient{
+    HTTPClient:    &http.Client{},
+    BaseURL:       "https://registry.example.com",
+    DisableDelete: true, // Prevents actual deletion, only logs
+}
+
+// This will only log the delete operation, not execute it
+err := client.DeleteManifest(context.Background(), "my-repo", "sha256:abc123...")
+// No error, but nothing was deleted
+```
+
 ### GitHub Container Registry
 
 For GitHub Container Registry (ghcr.io), use `GitHubClient`:
@@ -222,9 +245,9 @@ type Logger interface {
 
 ## API Reference
 
-### Client Methods
+### BaseClient Methods
 
-- `HealthCheck(ctx) (*int, error)` - Check registry availability
+- `HealthCheck(ctx) (int, error)` - Check registry availability
 - `GetCatalog(ctx, pagination) (*CatalogResponse, error)` - List repositories
 - `ListTags(ctx, repository, pagination) (*TagsResponse, error)` - List tags for a repository
 - `GetManifest(ctx, repository, reference, acceptHeaders...) (*ManifestResponse, error)` - Get image manifest
@@ -232,6 +255,12 @@ type Logger interface {
 - `GetBlob(ctx, repository, digest) (*BlobResponse, error)` - Get blob content
 - `HasBlob(ctx, repository, digest) (bool, error)` - Check if blob exists
 - `DeleteManifest(ctx, repository, digest, acceptHeaders...) error` - Delete manifest by digest
+
+### GitHubClient Methods
+
+GitHubClient embeds BaseClient and provides the same methods, with special handling for:
+- `GetCatalog(ctx, pagination)` - Lists user or organization packages from GitHub API
+- `DeleteManifest(ctx, repository, reference)` - Deletes package versions (works with tags or digests)
 
 ### Authentication
 

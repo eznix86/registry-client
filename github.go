@@ -26,13 +26,13 @@ type packagesAPI interface {
 }
 
 type githubPackagesAPI struct {
-	client   *Client
-	apiToken string
-	baseURL  string
+	baseClient *BaseClient
+	apiToken   string
+	baseURL    string
 }
 
 type GitHubClient struct {
-	*Client
+	*BaseClient
 	Type         GitHubClientType
 	Username     string // GitHub username for user client
 	Organization string // GitHub organization for org client
@@ -42,38 +42,40 @@ type GitHubClient struct {
 
 func NewGitHubClient(username, token string) *GitHubClient {
 	encodedToken := base64.StdEncoding.EncodeToString([]byte(token))
-	client := &Client{
-		BaseURL: "https://ghcr.io",
-		Auth:    BearerAuth{Token: encodedToken},
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
+		BaseURL:    "https://ghcr.io",
+		Auth:       BearerAuth{Token: encodedToken},
 	}
 	return &GitHubClient{
-		Client:   client,
-		Type:     GitHubUser,
-		Username: username,
-		APIToken: token,
+		BaseClient: client,
+		Type:       GitHubUser,
+		Username:   username,
+		APIToken:   token,
 		api: &githubPackagesAPI{
-			client:   client,
-			apiToken: token,
-			baseURL:  "https://api.github.com",
+			baseClient: client,
+			apiToken:   token,
+			baseURL:    "https://api.github.com",
 		},
 	}
 }
 
 func NewGitHubOrgClient(org, token string) *GitHubClient {
 	encodedToken := base64.StdEncoding.EncodeToString([]byte(token))
-	client := &Client{
-		BaseURL: "https://ghcr.io",
-		Auth:    BearerAuth{Token: encodedToken},
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
+		BaseURL:    "https://ghcr.io",
+		Auth:       BearerAuth{Token: encodedToken},
 	}
 	return &GitHubClient{
-		Client:       client,
+		BaseClient:   client,
 		Type:         GitHubOrg,
 		Organization: org,
 		APIToken:     token,
 		api: &githubPackagesAPI{
-			client:   client,
-			apiToken: token,
-			baseURL:  "https://api.github.com",
+			baseClient: client,
+			apiToken:   token,
+			baseURL:    "https://api.github.com",
 		},
 	}
 }
@@ -180,7 +182,7 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 	if pagination != nil {
 		logArgs = append(logArgs, "page_size", pagination.N, "last", pagination.Last)
 	}
-	api.client.logDebug("GitHub API request", logArgs...)
+	api.baseClient.logDebug("GitHub API request", logArgs...)
 
 	req, err := buildGitHubPackagesRequest(ctx, apiURL, api.apiToken, pagination)
 	if err != nil {
@@ -189,11 +191,11 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The buildGitHubPackagesRequest already set the correct Authorization header
-	resp, err := api.client.Client.Do(req)
+	resp, err := api.baseClient.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer api.client.closeBody(resp.Body)
+	defer api.baseClient.closeBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -206,7 +208,7 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 	}
 
 	paginationResp := parseGitHubLinkHeader(resp.Header.Get("Link"))
-	api.client.logDebug("GitHub API response", "operation", "getUserPackages", "package_count", len(packages), "has_more", paginationResp.HasMore)
+	api.baseClient.logDebug("GitHub API response", "operation", "getUserPackages", "package_count", len(packages), "has_more", paginationResp.HasMore)
 
 	return &GitHubPackagesResponse{
 		Packages:          packages,
@@ -221,7 +223,7 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	if pagination != nil {
 		logArgs = append(logArgs, "page_size", pagination.N, "last", pagination.Last)
 	}
-	api.client.logDebug("GitHub API request", logArgs...)
+	api.baseClient.logDebug("GitHub API request", logArgs...)
 
 	req, err := buildGitHubPackagesRequest(ctx, apiURL, api.apiToken, pagination)
 	if err != nil {
@@ -230,11 +232,11 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The buildGitHubPackagesRequest already set the correct Authorization header
-	resp, err := api.client.Client.Do(req)
+	resp, err := api.baseClient.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer api.client.closeBody(resp.Body)
+	defer api.baseClient.closeBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -247,7 +249,7 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	}
 
 	paginationResp := parseGitHubLinkHeader(resp.Header.Get("Link"))
-	api.client.logDebug("GitHub API response", "operation", "getOrgPackages", "organization", org, "package_count", len(packages), "has_more", paginationResp.HasMore)
+	api.baseClient.logDebug("GitHub API response", "operation", "getOrgPackages", "organization", org, "package_count", len(packages), "has_more", paginationResp.HasMore)
 
 	return &GitHubPackagesResponse{
 		Packages:          packages,
@@ -326,8 +328,7 @@ func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName str
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The Authorization header was already set with the correct raw token
-	//nolint:staticcheck // QF1008: Intentionally using Client.Do to bypass Auth.Apply
-	resp, err := gc.Client.Do(req)
+	resp, err := gc.BaseClient.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -392,6 +393,11 @@ func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName st
 		return err
 	}
 
+	if gc.DisableDelete {
+		gc.logInfo("DELETE DISABLED (dry-run mode)", "operation", "deletePackageVersion", "package", packageName, "version_id", versionID, "url", apiURL)
+		return nil
+	}
+
 	gc.logDebug("GitHub API request", "operation", "deletePackageVersion", "method", http.MethodDelete, "package", packageName, "version_id", versionID, "url", apiURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, apiURL, nil)
@@ -405,8 +411,7 @@ func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName st
 
 	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
 	// The Authorization header was already set with the correct raw token
-	//nolint:staticcheck // QF1008: Intentionally using Client.Do to bypass Auth.Apply
-	resp, err := gc.Client.Do(req)
+	resp, err := gc.BaseClient.HTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -454,9 +459,7 @@ func parseGitHubLinkHeader(linkHeader string) PaginatedResponse {
 		return PaginatedResponse{}
 	}
 
-	links := strings.Split(linkHeader, ",")
-
-	for _, link := range links {
+	for link := range strings.SplitSeq(linkHeader, ",") {
 		if !strings.Contains(link, `rel="next"`) {
 			continue
 		}

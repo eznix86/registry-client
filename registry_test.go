@@ -173,7 +173,7 @@ func TestHealthCheck(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL, MaxAttempts: tt.maxAttempts}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: tt.maxAttempts}
 			statusCode, err := client.HealthCheck(context.Background())
 
 			require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestGetCatalog(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			resp, err := client.GetCatalog(context.Background(), tt.pagination)
 
 			if tt.wantErr {
@@ -257,7 +257,7 @@ func TestGetManifest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			resp, err := client.GetManifest(context.Background(), "myrepo", "v1.0")
 
 			if tt.wantErr {
@@ -276,7 +276,7 @@ func TestGetManifest(t *testing.T) {
 // testResourceExists is a helper to test HEAD request endpoints (HasManifest, HasBlob)
 func testResourceExists(
 	t *testing.T,
-	checkFunc func(*Client, context.Context, string, string) (bool, error),
+	checkFunc func(*BaseClient, context.Context, string, string) (bool, error),
 ) {
 	t.Helper()
 
@@ -299,7 +299,7 @@ func testResourceExists(
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL, MaxAttempts: tt.maxAttempts}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: tt.maxAttempts}
 			exists, err := checkFunc(client, context.Background(), "myrepo", "v1.0")
 
 			if tt.wantErr {
@@ -314,7 +314,7 @@ func testResourceExists(
 }
 
 func TestHasManifest(t *testing.T) {
-	testResourceExists(t, func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
+	testResourceExists(t, func(c *BaseClient, ctx context.Context, repo, ref string) (bool, error) {
 		return c.HasManifest(ctx, repo, ref)
 	})
 }
@@ -343,7 +343,7 @@ func TestGetBlob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			resp, err := client.GetBlob(context.Background(), "myrepo", "sha256:blobdigest")
 
 			if tt.wantErr {
@@ -392,7 +392,7 @@ func TestListTags(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			resp, err := client.ListTags(context.Background(), "myrepo", tt.pagination)
 
 			if tt.wantErr {
@@ -431,7 +431,7 @@ func TestDeleteManifest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &Client{BaseURL: server.URL}
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 			err := client.DeleteManifest(context.Background(), "myrepo", "sha256:digest")
 
 			if tt.wantErr {
@@ -444,8 +444,29 @@ func TestDeleteManifest(t *testing.T) {
 	}
 }
 
+func TestDeleteManifest_DisableDelete(t *testing.T) {
+	deleteCalled := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleteCalled = true
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := &BaseClient{
+		HTTPClient:    &http.Client{},
+		BaseURL:       server.URL,
+		DisableDelete: true,
+	}
+	err := client.DeleteManifest(context.Background(), "myrepo", "sha256:digest")
+	require.NoError(t, err)
+	assert.False(t, deleteCalled, "DELETE should not have been called when DisableDelete is true")
+}
+
 func TestHasBlob(t *testing.T) {
-	testResourceExists(t, func(c *Client, ctx context.Context, repo, ref string) (bool, error) {
+	testResourceExists(t, func(c *BaseClient, ctx context.Context, repo, ref string) (bool, error) {
 		return c.HasBlob(ctx, repo, ref)
 	})
 }
@@ -588,7 +609,7 @@ func (e *errorRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 }
 
 func TestHealthCheck_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	statusCode, err := client.HealthCheck(context.Background())
 
 	require.Error(t, err)
@@ -596,10 +617,11 @@ func TestHealthCheck_InvalidBaseURL(t *testing.T) {
 }
 
 func TestHealthCheck_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	statusCode, err := client.HealthCheck(context.Background())
 
 	require.NoError(t, err)
@@ -607,7 +629,7 @@ func TestHealthCheck_NetworkError(t *testing.T) {
 }
 
 func TestHealthCheck_ConnectionRefused(t *testing.T) {
-	client := &Client{BaseURL: "http://localhost:9999"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "http://localhost:9999"}
 	statusCode, err := client.HealthCheck(context.Background())
 
 	require.NoError(t, err)
@@ -615,7 +637,8 @@ func TestHealthCheck_ConnectionRefused(t *testing.T) {
 }
 
 func TestHealthCheck_ConnectionRefusedWithRetries(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL:      "http://localhost:9999",
 		MaxAttempts:  3, // Will try 3 times
 		RetryBackoff: 200 * time.Millisecond,
@@ -628,7 +651,7 @@ func TestHealthCheck_ConnectionRefusedWithRetries(t *testing.T) {
 }
 
 func TestGetCatalog_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	resp, err := client.GetCatalog(context.Background(), nil)
 
 	require.Error(t, err)
@@ -636,10 +659,11 @@ func TestGetCatalog_InvalidBaseURL(t *testing.T) {
 }
 
 func TestGetCatalog_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetCatalog(context.Background(), nil)
 
 	require.Error(t, err)
@@ -653,7 +677,7 @@ func TestGetCatalog_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 	resp, err := client.GetCatalog(context.Background(), nil)
 
 	require.Error(t, err)
@@ -661,7 +685,7 @@ func TestGetCatalog_InvalidJSON(t *testing.T) {
 }
 
 func TestGetManifest_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	resp, err := client.GetManifest(context.Background(), "repo", "tag")
 
 	require.Error(t, err)
@@ -669,10 +693,11 @@ func TestGetManifest_InvalidBaseURL(t *testing.T) {
 }
 
 func TestGetManifest_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetManifest(context.Background(), "repo", "tag")
 
 	require.Error(t, err)
@@ -681,8 +706,8 @@ func TestGetManifest_NetworkError(t *testing.T) {
 
 func TestGetManifest_ReadBodyError(t *testing.T) {
 	// Simulate connection cut mid-stream using custom RoundTripper
-	client := &Client{BaseURL: "http://example.com"}
-	client.Transport = &errorRoundTripper{
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "http://example.com"}
+	client.HTTPClient.Transport = &errorRoundTripper{
 		statusCode: http.StatusOK,
 		headers: map[string]string{
 			"Docker-Content-Digest": "sha256:test",
@@ -699,7 +724,7 @@ func TestGetManifest_ReadBodyError(t *testing.T) {
 }
 
 func TestHasManifest_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	exists, err := client.HasManifest(context.Background(), "repo", "tag")
 
 	require.Error(t, err)
@@ -707,10 +732,11 @@ func TestHasManifest_InvalidBaseURL(t *testing.T) {
 }
 
 func TestHasManifest_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	exists, err := client.HasManifest(context.Background(), "repo", "tag")
 
 	require.Error(t, err)
@@ -723,7 +749,7 @@ func TestHasManifest_UnexpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL, MaxAttempts: 1}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: 1}
 	exists, err := client.HasManifest(context.Background(), "repo", "tag")
 
 	require.Error(t, err)
@@ -732,7 +758,7 @@ func TestHasManifest_UnexpectedStatus(t *testing.T) {
 }
 
 func TestGetBlob_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	resp, err := client.GetBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
@@ -740,10 +766,11 @@ func TestGetBlob_InvalidBaseURL(t *testing.T) {
 }
 
 func TestGetBlob_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.GetBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
@@ -752,8 +779,8 @@ func TestGetBlob_NetworkError(t *testing.T) {
 
 func TestGetBlob_ReadBodyError(t *testing.T) {
 	// Simulate connection cut mid-stream
-	client := &Client{BaseURL: "http://example.com"}
-	client.Transport = &errorRoundTripper{
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "http://example.com"}
+	client.HTTPClient.Transport = &errorRoundTripper{
 		statusCode: http.StatusOK,
 		headers: map[string]string{
 			"Docker-Content-Digest": "sha256:blobdigest",
@@ -770,7 +797,7 @@ func TestGetBlob_ReadBodyError(t *testing.T) {
 }
 
 func TestListTags_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	resp, err := client.ListTags(context.Background(), "repo", nil)
 
 	require.Error(t, err)
@@ -778,10 +805,11 @@ func TestListTags_InvalidBaseURL(t *testing.T) {
 }
 
 func TestListTags_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	resp, err := client.ListTags(context.Background(), "repo", nil)
 
 	require.Error(t, err)
@@ -795,7 +823,7 @@ func TestListTags_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL}
 	resp, err := client.ListTags(context.Background(), "repo", nil)
 
 	require.Error(t, err)
@@ -803,24 +831,25 @@ func TestListTags_InvalidJSON(t *testing.T) {
 }
 
 func TestDeleteManifest_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	err := client.DeleteManifest(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
 }
 
 func TestDeleteManifest_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	err := client.DeleteManifest(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
 }
 
 func TestHasBlob_InvalidBaseURL(t *testing.T) {
-	client := &Client{BaseURL: "://invalid-url"}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: "://invalid-url"}
 	exists, err := client.HasBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
@@ -828,10 +857,11 @@ func TestHasBlob_InvalidBaseURL(t *testing.T) {
 }
 
 func TestHasBlob_NetworkError(t *testing.T) {
-	client := &Client{
+	client := &BaseClient{
+		HTTPClient: &http.Client{},
 		BaseURL: "http://example.com",
 	}
-	client.Transport = &fakeRoundTripper{}
+	client.HTTPClient.Transport = &fakeRoundTripper{}
 	exists, err := client.HasBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)
@@ -844,7 +874,7 @@ func TestHasBlob_UnexpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL, MaxAttempts: 1}
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: 1}
 	exists, err := client.HasBlob(context.Background(), "repo", "digest")
 
 	require.Error(t, err)

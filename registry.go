@@ -128,7 +128,7 @@ func applyPagination(req *http.Request, pagination *PaginationParams) {
 // HealthCheck performs a GET on /v2/ to verify registry availability.
 // Returns the HTTP status code and only returns an error for programming errors (invalid URL).
 // Connection failures (refused, timeout, DNS errors) are mapped to 503 Service Unavailable.
-func (c *Client) HealthCheck(ctx context.Context) (int, error) {
+func (c *BaseClient) HealthCheck(ctx context.Context) (int, error) {
 	url := fmt.Sprintf("%s/v2/", c.BaseURL)
 
 	c.logDebug("Registry request",
@@ -163,7 +163,7 @@ func (c *Client) HealthCheck(ctx context.Context) (int, error) {
 
 // GetCatalog retrieves the list of repositories from /v2/_catalog.
 // Optional pagination parameters can be provided.
-func (c *Client) GetCatalog(ctx context.Context, pagination *PaginationParams) (*CatalogResponse, error) {
+func (c *BaseClient) GetCatalog(ctx context.Context, pagination *PaginationParams) (*CatalogResponse, error) {
 	url := fmt.Sprintf("%s/v2/_catalog", c.BaseURL)
 
 	logArgs := []any{
@@ -218,7 +218,7 @@ func (c *Client) GetCatalog(ctx context.Context, pagination *PaginationParams) (
 
 // GetManifest retrieves a manifest by repository and reference.
 // Optional acceptHeaders can override defaults.
-func (c *Client) GetManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (*ManifestResponse, error) {
+func (c *BaseClient) GetManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (*ManifestResponse, error) {
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", c.BaseURL, repository, reference)
 
 	c.logDebug("Registry request",
@@ -274,7 +274,7 @@ func (c *Client) GetManifest(ctx context.Context, repository, reference string, 
 }
 
 // HasManifest checks whether a manifest exists for a repository/reference.
-func (c *Client) HasManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (bool, error) {
+func (c *BaseClient) HasManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (bool, error) {
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", c.BaseURL, repository, reference)
 
 	c.logDebug("Registry request",
@@ -318,7 +318,7 @@ func (c *Client) HasManifest(ctx context.Context, repository, reference string, 
 }
 
 // GetBlob fetches a blob
-func (c *Client) GetBlob(ctx context.Context, repository, digest string) (*BlobResponse, error) {
+func (c *BaseClient) GetBlob(ctx context.Context, repository, digest string) (*BlobResponse, error) {
 	url := fmt.Sprintf("%s/v2/%s/blobs/%s", c.BaseURL, repository, digest)
 
 	c.logDebug("Registry request",
@@ -366,7 +366,7 @@ func (c *Client) GetBlob(ctx context.Context, repository, digest string) (*BlobR
 
 // ListTags retrieves all tags for a given repository.
 // Optional pagination parameters can be provided.
-func (c *Client) ListTags(ctx context.Context, repository string, pagination *PaginationParams) (*TagsResponse, error) {
+func (c *BaseClient) ListTags(ctx context.Context, repository string, pagination *PaginationParams) (*TagsResponse, error) {
 	url := fmt.Sprintf("%s/v2/%s/tags/list", c.BaseURL, repository)
 
 	logArgs := []any{
@@ -426,8 +426,18 @@ func (c *Client) ListTags(ctx context.Context, repository string, pagination *Pa
 // DeleteManifest deletes a manifest by repository and digest.
 // Note: reference must be a digest (sha256:...), not a tag.
 // Optional acceptHeaders can override defaults.
-func (c *Client) DeleteManifest(ctx context.Context, repository, digest string, acceptHeaders ...string) error {
+func (c *BaseClient) DeleteManifest(ctx context.Context, repository, digest string, acceptHeaders ...string) error {
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", c.BaseURL, repository, digest)
+
+	if c.DisableDelete {
+		c.logInfo("DELETE DISABLED (dry-run mode)",
+			"operation", "DeleteManifest",
+			"repository", repository,
+			"digest", digest,
+			"url", url,
+		)
+		return nil
+	}
 
 	c.logDebug("Registry request",
 		"operation", "DeleteManifest",
@@ -466,7 +476,7 @@ func (c *Client) DeleteManifest(ctx context.Context, repository, digest string, 
 }
 
 // HasBlob checks if a blob exists in the repository.
-func (c *Client) HasBlob(ctx context.Context, repository, digest string) (bool, error) {
+func (c *BaseClient) HasBlob(ctx context.Context, repository, digest string) (bool, error) {
 	url := fmt.Sprintf("%s/v2/%s/blobs/%s", c.BaseURL, repository, digest)
 
 	c.logDebug("Registry request",
