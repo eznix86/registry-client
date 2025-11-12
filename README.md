@@ -1,5 +1,5 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/eznix86/registry-client)](https://goreportcard.com/report/github.com/eznix86/registry-client) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![Coverage](https://img.shields.io/badge/Coverage-97.4%25-brightgreen)
+![Coverage](https://img.shields.io/badge/Coverage-97.5%25-brightgreen)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/eznix86/registry-client?style=flat-square)](https://golang.org/dl/)
 [![Release](https://img.shields.io/github/v/release/eznix86/registry-client?style=flat-square)](https://github.com/eznix86/registry-client/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/eznix86/registry-client.svg)](https://pkg.go.dev/github.com/eznix86/registry-client)
