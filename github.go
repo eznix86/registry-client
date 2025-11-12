@@ -257,7 +257,7 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	}, nil
 }
 
-func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, packageName string) (string, error) {
+func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, packageName string, pagination *PaginationParams) (string, error) {
 	escapedPkg := url.PathEscape(packageName)
 	var path string
 	if clientType == GitHubOrg {
@@ -266,13 +266,25 @@ func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, p
 		path = fmt.Sprintf("/user/packages/container/%s/versions", escapedPkg)
 	}
 
-	parsedURL, err := url.Parse(baseURL)
-	if err != nil {
-		return "", err
+	// Build query string
+	queryParams := url.Values{}
+	queryParams.Add("state", "active")
+	if pagination != nil {
+		if pagination.N > 0 {
+			queryParams.Add("per_page", fmt.Sprintf("%d", pagination.N))
+		}
+		if pagination.Last != "" {
+			queryParams.Add("page", pagination.Last)
+		}
 	}
-	parsedURL.Path = path
-	parsedURL.RawPath = path // Preserve percent encoding
-	return parsedURL.String(), nil
+
+	// Build complete URL string directly
+	fullURL := baseURL + path
+	if len(queryParams) > 0 {
+		fullURL += "?" + queryParams.Encode()
+	}
+
+	return fullURL, nil
 }
 
 func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, packageName string, versionID int) (string, error) {
@@ -284,18 +296,13 @@ func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, pa
 		path = fmt.Sprintf("/user/packages/container/%s/versions/%d", escapedPkg, versionID)
 	}
 
-	parsedURL, err := url.Parse(baseURL)
-	if err != nil {
-		return "", err
-	}
-	parsedURL.Path = path
-	parsedURL.RawPath = path // Preserve percent encoding
-	return parsedURL.String(), nil
+	// Build complete URL string directly
+	return baseURL + path, nil
 }
 
 func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName string, pagination *PaginationParams) ([]GitHubPackageVersion, error) {
 	baseURL := gc.api.(*githubPackagesAPI).baseURL
-	apiURL, err := buildPackageVersionsURL(baseURL, gc.Type, gc.Organization, packageName)
+	apiURL, err := buildPackageVersionsURL(baseURL, gc.Type, gc.Organization, packageName, pagination)
 	if err != nil {
 		return nil, err
 	}
@@ -310,18 +317,6 @@ func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName str
 	if err != nil {
 		return nil, err
 	}
-
-	q := req.URL.Query()
-	q.Add("state", "active")
-	if pagination != nil {
-		if pagination.N > 0 {
-			q.Add("per_page", fmt.Sprintf("%d", pagination.N))
-		}
-		if pagination.Last != "" {
-			q.Add("page", pagination.Last)
-		}
-	}
-	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer "+gc.APIToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
