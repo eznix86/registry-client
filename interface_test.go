@@ -30,7 +30,7 @@ func TestRegistryClient_Polymorphism(t *testing.T) {
 		},
 		{
 			name:   "github registry client",
-			client: NewGitHubClient("test-token"),
+			client: NewGitHubClient("testuser", "test-token"),
 		},
 	}
 

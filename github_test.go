@@ -115,17 +115,18 @@ func (m *mockPackagesAPI) getOrgPackages(ctx context.Context, org string, pagina
 }
 
 func TestNewGitHubClient(t *testing.T) {
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 
 	require.NotNil(t, client)
 	assert.Equal(t, GitHubUser, client.Type)
 	assert.Equal(t, "https://ghcr.io", client.BaseURL)
+	assert.Equal(t, "testuser", client.Username)
 	assert.Equal(t, "", client.Organization)
 	assert.Equal(t, "test-token", client.APIToken)
 }
 
 func TestNewGitHubOrgClient(t *testing.T) {
-	client := NewGitHubOrgClient("test-token", "myorg")
+	client := NewGitHubOrgClient("myorg", "test-token")
 
 	require.NotNil(t, client)
 	assert.Equal(t, GitHubOrg, client.Type)
@@ -142,22 +143,25 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 		linkHeader   string
 		pagination   *PaginationParams
 		wantErr      bool
-		wantRepos    []string
+		apiPackages  []string // Raw package names from API
+		wantRepos    []string // Expected repository names with prefix
 		wantMore     bool
 		wantNextPage string
 	}{
 		{
-			name:       "success without pagination",
-			statusCode: http.StatusOK,
-			wantRepos:  []string{"package1", "package2", "package3"},
-			wantMore:   false,
+			name:        "success without pagination",
+			statusCode:  http.StatusOK,
+			apiPackages: []string{"package1", "package2", "package3"},
+			wantRepos:   []string{"testuser/package1", "testuser/package2", "testuser/package3"},
+			wantMore:    false,
 		},
 		{
 			name:         "success with pagination",
 			statusCode:   http.StatusOK,
 			linkHeader:   `<https://api.github.com/user/packages?package_type=container&page=2>; rel="next"`,
 			pagination:   &PaginationParams{N: 10, Last: "1"},
-			wantRepos:    []string{"package1"},
+			apiPackages:  []string{"package1"},
+			wantRepos:    []string{"testuser/package1"},
 			wantMore:     true,
 			wantNextPage: "2",
 		},
@@ -167,10 +171,11 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "empty response",
-			statusCode: http.StatusOK,
-			wantRepos:  []string{},
-			wantMore:   false,
+			name:        "empty response",
+			statusCode:  http.StatusOK,
+			apiPackages: []string{},
+			wantRepos:   []string{},
+			wantMore:    false,
 		},
 	}
 
@@ -181,7 +186,7 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 				callCount++
 				assert.Equal(t, "/user/packages", r.URL.Path)
 				assert.Equal(t, "container", r.URL.Query().Get("package_type"))
-				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
 
 				if tt.pagination != nil {
 					assert.Equal(t, "10", r.URL.Query().Get("per_page"))
@@ -194,8 +199,8 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 				w.WriteHeader(tt.statusCode)
 
 				if tt.statusCode == http.StatusOK {
-					packages := make([]GitHubPackage, len(tt.wantRepos))
-					for i, name := range tt.wantRepos {
+					packages := make([]GitHubPackage, len(tt.apiPackages))
+					for i, name := range tt.apiPackages {
 						packages[i] = GitHubPackage{
 							ID:          i + 1,
 							Name:        name,
@@ -210,7 +215,7 @@ func TestGitHubClient_GetCatalog_User(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewGitHubClient("test-token")
+			client := NewGitHubClient("testuser", "test-token")
 			client.api = &mockPackagesAPI{
 				serverURL: server.URL,
 				client:    client.Client,
@@ -245,16 +250,18 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 		linkHeader   string
 		pagination   *PaginationParams
 		wantErr      bool
-		wantRepos    []string
+		apiPackages  []string // Raw package names from API
+		wantRepos    []string // Expected repository names with prefix
 		wantMore     bool
 		wantNextPage string
 	}{
 		{
-			name:       "success without pagination",
-			org:        "myorg",
-			statusCode: http.StatusOK,
-			wantRepos:  []string{"org-package1", "org-package2"},
-			wantMore:   false,
+			name:        "success without pagination",
+			org:         "myorg",
+			statusCode:  http.StatusOK,
+			apiPackages: []string{"org-package1", "org-package2"},
+			wantRepos:   []string{"myorg/org-package1", "myorg/org-package2"},
+			wantMore:    false,
 		},
 		{
 			name:         "success with pagination",
@@ -262,7 +269,8 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 			statusCode:   http.StatusOK,
 			linkHeader:   `<https://api.github.com/orgs/testorg/packages?package_type=container&page=3>; rel="next"`,
 			pagination:   &PaginationParams{N: 25, Last: "2"},
-			wantRepos:    []string{"package10"},
+			apiPackages:  []string{"package10"},
+			wantRepos:    []string{"testorg/package10"},
 			wantMore:     true,
 			wantNextPage: "3",
 		},
@@ -287,7 +295,7 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 				callCount++
 				assert.Contains(t, r.URL.Path, "/orgs/"+tt.org+"/packages")
 				assert.Equal(t, "container", r.URL.Query().Get("package_type"))
-				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
 
 				if tt.pagination != nil {
 					assert.Equal(t, "25", r.URL.Query().Get("per_page"))
@@ -300,8 +308,8 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 				w.WriteHeader(tt.statusCode)
 
 				if tt.statusCode == http.StatusOK {
-					packages := make([]GitHubPackage, len(tt.wantRepos))
-					for i, name := range tt.wantRepos {
+					packages := make([]GitHubPackage, len(tt.apiPackages))
+					for i, name := range tt.apiPackages {
 						packages[i] = GitHubPackage{
 							ID:          i + 1,
 							Name:        name,
@@ -316,7 +324,7 @@ func TestGitHubClient_GetCatalog_Org(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewGitHubOrgClient("test-token", tt.org)
+			client := NewGitHubOrgClient(tt.org, "test-token")
 			client.api = &mockPackagesAPI{
 				serverURL: server.URL,
 				client:    client.Client,
@@ -427,7 +435,7 @@ func TestParseGitHubLinkHeader(t *testing.T) {
 }
 
 func TestGitHubClient_NetworkError(t *testing.T) {
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.Transport = &fakeRoundTripper{}
 
 	_, err := client.GetCatalog(context.Background(), nil)
@@ -441,7 +449,7 @@ func TestGitHubClient_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &mockPackagesAPI{
 		serverURL: server.URL,
 		client:    client.Client,
@@ -814,15 +822,16 @@ func TestGitHubClient_DeleteManifest_User(t *testing.T) {
 		},
 	}
 
+	//nolint:dupl // Test patterns are similar but test different client types
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
 				tt.setupServer(w, r)
 			}))
 			defer server.Close()
 
-			client := NewGitHubClient("test-token")
+			client := NewGitHubClient("testuser", "test-token")
 			client.api = &githubPackagesAPI{
 				client:   client.Client,
 				apiToken: "test-token",
@@ -908,15 +917,16 @@ func TestGitHubClient_DeleteManifest_Org(t *testing.T) {
 		},
 	}
 
+	//nolint:dupl // Test patterns are similar but test different client types
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer dGVzdC10b2tlbg==", r.Header.Get("Authorization"))
 				tt.setupServer(w, r)
 			}))
 			defer server.Close()
 
-			client := NewGitHubOrgClient("test-token", "myorg")
+			client := NewGitHubOrgClient("myorg", "test-token")
 			client.api = &githubPackagesAPI{
 				client:   client.Client,
 				apiToken: "test-token",
@@ -978,7 +988,7 @@ func TestGitHubClient_FindPackageVersionID_Pagination(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -991,7 +1001,7 @@ func TestGitHubClient_FindPackageVersionID_Pagination(t *testing.T) {
 }
 
 func TestGitHubClient_ListPackageVersions_NetworkError(t *testing.T) {
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.Transport = &fakeRoundTripper{}
 
 	_, err := client.listPackageVersions(context.Background(), "my-app", nil)
@@ -999,7 +1009,7 @@ func TestGitHubClient_ListPackageVersions_NetworkError(t *testing.T) {
 }
 
 func TestGitHubClient_FindPackageVersionID_NetworkError(t *testing.T) {
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.Transport = &fakeRoundTripper{}
 
 	_, err := client.findPackageVersionID(context.Background(), "my-app", "v1.0.0")
@@ -1007,7 +1017,7 @@ func TestGitHubClient_FindPackageVersionID_NetworkError(t *testing.T) {
 }
 
 func TestGitHubClient_DeletePackageVersion_NetworkError(t *testing.T) {
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.Transport = &fakeRoundTripper{}
 
 	err := client.deletePackageVersion(context.Background(), "my-app", 123)
@@ -1021,7 +1031,7 @@ func TestGitHubClient_ListPackageVersions_StatusError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -1040,7 +1050,7 @@ func TestGitHubClient_ListPackageVersions_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -1057,7 +1067,7 @@ func TestGitHubClient_DeletePackageVersion_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -1076,7 +1086,7 @@ func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -1088,6 +1098,7 @@ func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
 	assert.Contains(t, err.Error(), "delete package version failed")
 }
 
+//nolint:dupl // Test patterns are similar but test different client types and paths
 func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Package name "textbee/api" is URL encoded to "textbee%2Fapi"
@@ -1116,7 +1127,7 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubClient("test-token")
+	client := NewGitHubClient("testuser", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",
@@ -1127,6 +1138,7 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 	require.NoError(t, err)
 }
 
+//nolint:dupl // Test patterns are similar but test different client types and paths
 func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Package name "mycompany/backend/service" is URL encoded to "mycompany%2Fbackend%2Fservice"
@@ -1155,7 +1167,7 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewGitHubOrgClient("test-token", "acme")
+	client := NewGitHubOrgClient("acme", "test-token")
 	client.api = &githubPackagesAPI{
 		client:   client.Client,
 		apiToken: "test-token",

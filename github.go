@@ -2,6 +2,7 @@ package registryclient
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,19 +34,22 @@ type githubPackagesAPI struct {
 type GitHubClient struct {
 	*Client
 	Type         GitHubClientType
-	Organization string
+	Username     string // GitHub username for user client
+	Organization string // GitHub organization for org client
 	APIToken     string
 	api          packagesAPI
 }
 
-func NewGitHubClient(token string) *GitHubClient {
+func NewGitHubClient(username, token string) *GitHubClient {
+	encodedToken := base64.StdEncoding.EncodeToString([]byte(token))
 	client := &Client{
 		BaseURL: "https://ghcr.io",
-		Auth:    BearerAuth{Token: token},
+		Auth:    BearerAuth{Token: encodedToken},
 	}
 	return &GitHubClient{
 		Client:   client,
 		Type:     GitHubUser,
+		Username: username,
 		APIToken: token,
 		api: &githubPackagesAPI{
 			client:   client,
@@ -55,10 +59,11 @@ func NewGitHubClient(token string) *GitHubClient {
 	}
 }
 
-func NewGitHubOrgClient(token string, org string) *GitHubClient {
+func NewGitHubOrgClient(org, token string) *GitHubClient {
+	encodedToken := base64.StdEncoding.EncodeToString([]byte(token))
 	client := &Client{
 		BaseURL: "https://ghcr.io",
-		Auth:    BearerAuth{Token: token},
+		Auth:    BearerAuth{Token: encodedToken},
 	}
 	return &GitHubClient{
 		Client:       client,
@@ -87,9 +92,15 @@ func (gc *GitHubClient) GetCatalog(ctx context.Context, pagination *PaginationPa
 		return nil, err
 	}
 
+	// Prefix package names with username/org for ghcr.io compatibility
+	prefix := gc.Username
+	if gc.Type == GitHubOrg {
+		prefix = gc.Organization
+	}
+
 	repositories := make([]string, len(packagesResp.Packages))
 	for i, pkg := range packagesResp.Packages {
-		repositories[i] = pkg.Name
+		repositories[i] = prefix + "/" + pkg.Name
 	}
 
 	return &CatalogResponse{
@@ -176,7 +187,9 @@ func (api *githubPackagesAPI) getUserPackages(ctx context.Context, pagination *P
 		return nil, err
 	}
 
-	resp, err := api.client.Do(req)
+	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
+	// The buildGitHubPackagesRequest already set the correct Authorization header
+	resp, err := api.client.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +228,9 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 		return nil, err
 	}
 
-	resp, err := api.client.Do(req)
+	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
+	// The buildGitHubPackagesRequest already set the correct Authorization header
+	resp, err := api.client.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +324,10 @@ func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName str
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	resp, err := gc.Do(req)
+	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
+	// The Authorization header was already set with the correct raw token
+	//nolint:staticcheck // QF1008: Intentionally using Client.Do to bypass Auth.Apply
+	resp, err := gc.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +403,10 @@ func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName st
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	resp, err := gc.Do(req)
+	// Use http.Client.Do directly to avoid applying the registry auth (base64-encoded token)
+	// The Authorization header was already set with the correct raw token
+	//nolint:staticcheck // QF1008: Intentionally using Client.Do to bypass Auth.Apply
+	resp, err := gc.Client.Do(req)
 	if err != nil {
 		return err
 	}
