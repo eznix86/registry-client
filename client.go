@@ -41,7 +41,7 @@ func (b BearerAuth) Apply(req *http.Request) {
 
 // BaseClient wraps http.Client with registry-specific configuration
 type BaseClient struct {
-	HTTPClient    *http.Client  // HTTP client for making requests
+	HTTPClient    *http.Client // HTTP client for making requests
 	BaseURL       string
 	Auth          Auth
 	RetryBackoff  time.Duration // Initial backoff duration for retries
