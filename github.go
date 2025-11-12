@@ -257,7 +257,7 @@ func (api *githubPackagesAPI) getOrgPackages(ctx context.Context, org string, pa
 	}, nil
 }
 
-func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, packageName string, pagination *PaginationParams) (string, error) {
+func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, packageName string, pagination *PaginationParams) string {
 	escapedPkg := url.PathEscape(packageName)
 	var path string
 	if clientType == GitHubOrg {
@@ -284,10 +284,10 @@ func buildPackageVersionsURL(baseURL string, clientType GitHubClientType, org, p
 		fullURL += "?" + queryParams.Encode()
 	}
 
-	return fullURL, nil
+	return fullURL
 }
 
-func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, packageName string, versionID int) (string, error) {
+func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, packageName string, versionID int) string {
 	escapedPkg := url.PathEscape(packageName)
 	var path string
 	if clientType == GitHubOrg {
@@ -297,15 +297,12 @@ func buildPackageVersionURL(baseURL string, clientType GitHubClientType, org, pa
 	}
 
 	// Build complete URL string directly
-	return baseURL + path, nil
+	return baseURL + path
 }
 
 func (gc *GitHubClient) listPackageVersions(ctx context.Context, packageName string, pagination *PaginationParams) ([]GitHubPackageVersion, error) {
 	baseURL := gc.api.(*githubPackagesAPI).baseURL
-	apiURL, err := buildPackageVersionsURL(baseURL, gc.Type, gc.Organization, packageName, pagination)
-	if err != nil {
-		return nil, err
-	}
+	apiURL := buildPackageVersionsURL(baseURL, gc.Type, gc.Organization, packageName, pagination)
 
 	logArgs := []any{"operation", "listPackageVersions", "method", http.MethodGet, "package", packageName, "url", apiURL}
 	if pagination != nil {
@@ -383,10 +380,7 @@ func (gc *GitHubClient) findPackageVersionID(ctx context.Context, packageName, r
 
 func (gc *GitHubClient) deletePackageVersion(ctx context.Context, packageName string, versionID int) error {
 	baseURL := gc.api.(*githubPackagesAPI).baseURL
-	apiURL, err := buildPackageVersionURL(baseURL, gc.Type, gc.Organization, packageName, versionID)
-	if err != nil {
-		return err
-	}
+	apiURL := buildPackageVersionURL(baseURL, gc.Type, gc.Organization, packageName, versionID)
 
 	if gc.DisableDelete {
 		gc.logInfo("DELETE DISABLED (dry-run mode)", "operation", "deletePackageVersion", "package", packageName, "version_id", versionID, "url", apiURL)
