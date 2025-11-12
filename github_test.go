@@ -1102,9 +1102,14 @@ func TestGitHubClient_DeletePackageVersion_UnexpectedStatus(t *testing.T) {
 func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Package name "textbee/api" is URL encoded to "textbee%2Fapi"
-		t.Logf("Request: %s %s", r.Method, r.URL.Path)
+		// The server receives the escaped path in RawPath or can reconstruct from RequestURI
+		requestPath := r.URL.Path
+		if r.URL.RawPath != "" {
+			requestPath = r.URL.RawPath
+		}
+		t.Logf("Request: %s %s", r.Method, requestPath)
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/user/packages/container/textbee%2Fapi/versions":
+		case r.Method == http.MethodGet && requestPath == "/user/packages/container/textbee%2Fapi/versions":
 			versions := []GitHubPackageVersion{
 				{
 					ID:   99999,
@@ -1118,10 +1123,10 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(versions)
-		case r.Method == http.MethodDelete && r.URL.Path == "/user/packages/container/textbee%2Fapi/versions/99999":
+		case r.Method == http.MethodDelete && requestPath == "/user/packages/container/textbee%2Fapi/versions/99999":
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			t.Logf("Unexpected request path: %s", r.URL.Path)
+			t.Logf("Unexpected request path: %s", requestPath)
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -1142,9 +1147,14 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_User(t *testing.T) {
 func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Package name "mycompany/backend/service" is URL encoded to "mycompany%2Fbackend%2Fservice"
-		t.Logf("Request: %s %s", r.Method, r.URL.Path)
+		// The server receives the escaped path in RawPath or can reconstruct from RequestURI
+		requestPath := r.URL.Path
+		if r.URL.RawPath != "" {
+			requestPath = r.URL.RawPath
+		}
+		t.Logf("Request: %s %s", r.Method, requestPath)
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions":
+		case r.Method == http.MethodGet && requestPath == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions":
 			versions := []GitHubPackageVersion{
 				{
 					ID:   88888,
@@ -1158,10 +1168,10 @@ func TestGitHubClient_DeleteManifest_MultiSegmentRepository_Org(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(versions)
-		case r.Method == http.MethodDelete && r.URL.Path == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions/88888":
+		case r.Method == http.MethodDelete && requestPath == "/orgs/acme/packages/container/mycompany%2Fbackend%2Fservice/versions/88888":
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			t.Logf("Unexpected request path: %s", r.URL.Path)
+			t.Logf("Unexpected request path: %s", requestPath)
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
