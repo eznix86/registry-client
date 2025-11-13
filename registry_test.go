@@ -2,7 +2,6 @@ package registryclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	json "github.com/eznix86/registry-client/jsoncompat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -22,6 +22,7 @@ Used by [Docker Registry UI](https://github.com/eznix86/docker-registry-ui)
 - Health check endpoint
 - GitHub Container Registry support (user and organization packages)
 - Safe delete operations with `DisableDelete` flag for testing
+- uses `encoding/json/v2` can be enabled using `GOEXPERIMENT=jsonv2`
 
 ## Installation
 

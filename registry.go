@@ -2,12 +2,13 @@ package registryclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	json "github.com/eznix86/registry-client/jsoncompat"
 )
 
 var defaultManifestMediaTypes = []string{

@@ -1,6 +1,6 @@
 package registryclient
 
-import "encoding/json"
+import json "github.com/eznix86/registry-client/jsoncompat"
 
 // Manifest represents an OCI/Docker manifest with schema version and media type
 type Manifest struct {

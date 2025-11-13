@@ -3,13 +3,14 @@ package registryclient
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+
+	json "github.com/eznix86/registry-client/jsoncompat"
 )
 
 // GitHubClientType represents whether the client is for a user or organization
