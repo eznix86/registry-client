@@ -71,6 +71,7 @@ func (c *BaseClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	state := &retryState{}
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// #nosec G107,G704 -- Registry clients intentionally execute caller-configured registry requests.
 		resp, err := c.HTTPClient.Do(req)
 
 		if shouldReturnImmediately(resp, err) {
