@@ -282,8 +282,6 @@ func TestHeadManifest(t *testing.T) {
 		contentType     string
 		wantExists      bool
 		wantErr         bool
-		wantAccept      []string
-		acceptHeaders   []string
 		wantDigest      string
 		wantMediaType   string
 		wantContentType string
@@ -310,21 +308,11 @@ func TestHeadManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, http.MethodHead, r.Method)
-				if len(tt.wantAccept) > 0 {
-					assert.Equal(t, tt.wantAccept, r.Header.Values("Accept"))
-				}
-				if tt.statusCode == http.StatusOK {
-					w.Header().Set("Docker-Content-Digest", tt.wantDigest)
-					w.Header().Set("Content-Type", tt.contentType)
-				}
-				w.WriteHeader(tt.statusCode)
-			}))
+			server := newHeadManifestServer(t, tt.statusCode, tt.wantDigest, tt.contentType)
 			defer server.Close()
 
 			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: 1}
-			resp, err := client.HeadManifest(context.Background(), "myrepo", "v1.0", tt.acceptHeaders...)
+			resp, err := client.HeadManifest(context.Background(), "myrepo", "v1.0")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -342,6 +330,18 @@ func TestHeadManifest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newHeadManifestServer(t *testing.T, statusCode int, digest, contentType string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodHead, r.Method)
+		if statusCode == http.StatusOK {
+			w.Header().Set("Docker-Content-Digest", digest)
+			w.Header().Set("Content-Type", contentType)
+		}
+		w.WriteHeader(statusCode)
+	}))
 }
 
 func TestHeadManifest_CustomAcceptHeaders(t *testing.T) {
