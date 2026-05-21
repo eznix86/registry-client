@@ -306,16 +306,6 @@ func TestHeadManifest(t *testing.T) {
 			statusCode: http.StatusInternalServerError,
 			wantErr:    true,
 		},
-		{
-			name:          "custom accept headers",
-			statusCode:    http.StatusOK,
-			contentType:   "application/vnd.docker.distribution.manifest.v2+json",
-			wantExists:    true,
-			acceptHeaders: []string{"application/custom-manifest+json"},
-			wantAccept:    []string{"application/custom-manifest+json"},
-			wantDigest:    "sha256:manifestdigest",
-			wantMediaType: "application/vnd.docker.distribution.manifest.v2+json",
-		},
 	}
 
 	for _, tt := range tests {
@@ -352,6 +342,26 @@ func TestHeadManifest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHeadManifest_CustomAcceptHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodHead, r.Method)
+		assert.Equal(t, []string{"application/custom-manifest+json"}, r.Header.Values("Accept"))
+		w.Header().Set("Docker-Content-Digest", "sha256:manifestdigest")
+		w.Header().Set("Content-Type", "application/vnd.docker.distribution.manifest.v2+json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: 1}
+	resp, err := client.HeadManifest(context.Background(), "myrepo", "v1.0", "application/custom-manifest+json")
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.True(t, resp.Exists)
+	assert.Equal(t, "sha256:manifestdigest", resp.Digest)
+	assert.Equal(t, "application/vnd.docker.distribution.manifest.v2+json", resp.MediaType)
 }
 
 // testResourceExists is a helper to test HEAD request endpoints (HasManifest, HasBlob)
