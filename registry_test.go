@@ -251,6 +251,7 @@ func TestGetManifest(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tt.statusCode == http.StatusOK && tt.body == manifestJSON {
 					w.Header().Set("Docker-Content-Digest", tt.wantDigest)
+					w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
 				}
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(tt.body))
@@ -269,6 +270,86 @@ func TestGetManifest(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			assert.Equal(t, tt.wantDigest, resp.Digest)
+			assert.Equal(t, "application/vnd.oci.image.manifest.v1+json", resp.ContentType)
+		})
+	}
+}
+
+func TestHeadManifest(t *testing.T) {
+	tests := []struct {
+		name            string
+		statusCode      int
+		contentType     string
+		wantExists      bool
+		wantErr         bool
+		wantAccept      []string
+		acceptHeaders   []string
+		wantDigest      string
+		wantMediaType   string
+		wantContentType string
+	}{
+		{
+			name:            "exists",
+			statusCode:      http.StatusOK,
+			contentType:     "application/vnd.oci.image.index.v1+json; charset=utf-8",
+			wantExists:      true,
+			wantDigest:      "sha256:manifestdigest",
+			wantMediaType:   "application/vnd.oci.image.index.v1+json",
+			wantContentType: "application/vnd.oci.image.index.v1+json; charset=utf-8",
+		},
+		{
+			name:       "not found",
+			statusCode: http.StatusNotFound,
+		},
+		{
+			name:       "unexpected status",
+			statusCode: http.StatusInternalServerError,
+			wantErr:    true,
+		},
+		{
+			name:          "custom accept headers",
+			statusCode:    http.StatusOK,
+			contentType:   "application/vnd.docker.distribution.manifest.v2+json",
+			wantExists:    true,
+			acceptHeaders: []string{"application/custom-manifest+json"},
+			wantAccept:    []string{"application/custom-manifest+json"},
+			wantDigest:    "sha256:manifestdigest",
+			wantMediaType: "application/vnd.docker.distribution.manifest.v2+json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodHead, r.Method)
+				if len(tt.wantAccept) > 0 {
+					assert.Equal(t, tt.wantAccept, r.Header.Values("Accept"))
+				}
+				if tt.statusCode == http.StatusOK {
+					w.Header().Set("Docker-Content-Digest", tt.wantDigest)
+					w.Header().Set("Content-Type", tt.contentType)
+				}
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			client := &BaseClient{HTTPClient: &http.Client{}, BaseURL: server.URL, MaxAttempts: 1}
+			resp, err := client.HeadManifest(context.Background(), "myrepo", "v1.0", tt.acceptHeaders...)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			assert.Equal(t, tt.wantExists, resp.Exists)
+			assert.Equal(t, tt.wantDigest, resp.Digest)
+			assert.Equal(t, tt.wantMediaType, resp.MediaType)
+			if tt.wantContentType != "" {
+				assert.Equal(t, tt.wantContentType, resp.ContentType)
+			}
 		})
 	}
 }

@@ -74,6 +74,11 @@ func addAcceptHeaders(req *http.Request, customHeaders []string) {
 	}
 }
 
+func normalizeContentType(contentType string) string {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return strings.TrimSpace(mediaType)
+}
+
 // parseLinkHeader parses the Link header and extracts pagination parameters.
 // Link format: </v2/_catalog?last=repo&n=100>; rel="next"
 func parseLinkHeader(linkHeader string) PaginatedResponse {
@@ -255,12 +260,14 @@ func (c *BaseClient) GetManifest(ctx context.Context, repository, reference stri
 	if err != nil {
 		return nil, err
 	}
+	contentType := resp.Header.Get("Content-Type")
 
 	c.logDebug("Registry response",
 		"operation", "GetManifest",
 		"repository", repository,
 		"reference", reference,
 		"media_type", manifest.MediaType,
+		"content_type", contentType,
 		"digest", resp.Header.Get("Docker-Content-Digest"),
 		"schema_version", manifest.SchemaVersion,
 	)
@@ -270,8 +277,59 @@ func (c *BaseClient) GetManifest(ctx context.Context, repository, reference stri
 		MediaType:     manifest.MediaType,
 		ManifestData:  manifest.ManifestData,
 		Digest:        resp.Header.Get("Docker-Content-Digest"),
+		ContentType:   contentType,
 		RawContent:    body,
 	}, nil
+}
+
+// HeadManifest retrieves manifest metadata without downloading the body.
+func (c *BaseClient) HeadManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (*ManifestHeadResponse, error) {
+	url := fmt.Sprintf("%s/v2/%s/manifests/%s", c.BaseURL, repository, reference)
+
+	c.logDebug("Registry request",
+		"operation", "HeadManifest",
+		"method", http.MethodHead,
+		"repository", repository,
+		"reference", reference,
+		"url", url,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	addAcceptHeaders(req, acceptHeaders)
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer c.closeBody(resp.Body)
+
+	if resp.StatusCode == http.StatusNotFound {
+		return &ManifestHeadResponse{Exists: false}, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	result := &ManifestHeadResponse{
+		Exists:      true,
+		Digest:      resp.Header.Get("Docker-Content-Digest"),
+		MediaType:   normalizeContentType(contentType),
+		ContentType: contentType,
+	}
+
+	c.logDebug("Registry response",
+		"operation", "HeadManifest",
+		"repository", repository,
+		"reference", reference,
+		"digest", result.Digest,
+		"content_type", result.ContentType,
+	)
+
+	return result, nil
 }
 
 // HasManifest checks whether a manifest exists for a repository/reference.

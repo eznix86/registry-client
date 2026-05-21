@@ -17,6 +17,10 @@ type RegistryClient interface {
 	// Optional acceptHeaders can override defaults.
 	GetManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (*ManifestResponse, error)
 
+	// HeadManifest retrieves manifest metadata without downloading the body.
+	// Optional acceptHeaders can override defaults.
+	HeadManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (*ManifestHeadResponse, error)
+
 	// HasManifest checks whether a manifest exists.
 	HasManifest(ctx context.Context, repository, reference string, acceptHeaders ...string) (bool, error)
 

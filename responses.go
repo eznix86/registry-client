@@ -33,8 +33,17 @@ type ManifestResponse struct {
 	ManifestData  any // ImageManifest or ManifestList
 
 	// HTTP response metadata
-	Digest     string
-	RawContent []byte
+	Digest      string
+	ContentType string
+	RawContent  []byte
+}
+
+// ManifestHeadResponse represents metadata returned by a manifest HEAD request.
+type ManifestHeadResponse struct {
+	Exists      bool
+	Digest      string
+	MediaType   string
+	ContentType string
 }
 
 // BlobResponse represents the response from blob endpoints
