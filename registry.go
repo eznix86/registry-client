@@ -28,6 +28,14 @@ func ParseConfigBlob(content []byte) (*ConfigBlob, error) {
 }
 
 func ParseManifest(b []byte) (*Manifest, error) {
+	return parseManifestWithMediaType(b, "")
+}
+
+func ParseManifestForceMediaType(b []byte, mediaType string) (*Manifest, error) {
+	return parseManifestWithMediaType(b, mediaType)
+}
+
+func parseManifestWithMediaType(b []byte, mediaTypeOverride string) (*Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
@@ -35,7 +43,12 @@ func ParseManifest(b []byte) (*Manifest, error) {
 
 	m.Raw = b
 
-	switch m.MediaType {
+	mediaType := m.MediaType
+	if mediaType == "" && mediaTypeOverride != "" {
+		mediaType = mediaTypeOverride
+	}
+
+	switch mediaType {
 	case "application/vnd.oci.image.manifest.v1+json":
 		fallthrough
 
@@ -56,7 +69,7 @@ func ParseManifest(b []byte) (*Manifest, error) {
 		m.ManifestData = list
 
 	default:
-		return nil, fmt.Errorf("unsupported mediaType: %s", m.MediaType)
+		return nil, fmt.Errorf("unsupported mediaType: %s", mediaType)
 	}
 
 	return &m, nil
@@ -258,9 +271,21 @@ func (c *BaseClient) GetManifest(ctx context.Context, repository, reference stri
 
 	manifest, err := ParseManifest(body)
 	if err != nil {
-		return nil, err
+		// Retry with Content-Type header as mediaType fallback for manifests
+		// that don't include a top-level mediaType field (e.g. Helm charts).
+		if httpMediaType := normalizeContentType(resp.Header.Get("Content-Type")); httpMediaType != "" {
+			manifest, err = ParseManifestForceMediaType(body, httpMediaType)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	contentType := resp.Header.Get("Content-Type")
+
+	// Use Content-Type as mediaType fallback for manifests without top-level mediaType (e.g. Helm charts).
+	if manifest.MediaType == "" {
+		manifest.MediaType = normalizeContentType(contentType)
+	}
 
 	c.logDebug("Registry response",
 		"operation", "GetManifest",
