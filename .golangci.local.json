@@ -36,6 +36,10 @@
       "gocyclo": {
         "min-complexity": 15
       },
+      "funlen": {
+        "lines": 70,
+        "statements": 50
+      },
       "misspell": {
         "locale": "US"
       },
