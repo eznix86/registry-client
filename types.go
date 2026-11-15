@@ -76,6 +76,7 @@ type RootFS struct {
 type ConfigBlob struct {
 	Architecture string          `json:"architecture"`
 	OS           string          `json:"os"`
+	Variant      string          `json:"variant,omitempty"`
 	Config       ContainerConfig `json:"config"`
 	Created      string          `json:"created"`
 	History      []HistoryEntry  `json:"history"`
