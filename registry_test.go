@@ -18,14 +18,16 @@ import (
 
 func TestParseConfigBlob(t *testing.T) {
 	tests := []struct {
-		name      string
-		file      string
-		wantErr   bool
-		wantArch  string
-		wantOS    string
-		wantEmpty bool
+		name        string
+		file        string
+		wantErr     bool
+		wantArch    string
+		wantOS      string
+		wantVariant string
+		wantEmpty   bool
 	}{
 		{name: "valid config blob", file: "testdata/config/valid-config.json", wantArch: "amd64", wantOS: "linux"},
+		{name: "config blob with variant", file: "testdata/config/arm-v7-config.json", wantArch: "arm", wantOS: "linux", wantVariant: "v7"},
 		{name: "invalid JSON", file: "testdata/invalid/invalid-json.json", wantErr: true},
 		{name: "empty content", file: "", wantEmpty: true},
 	}
@@ -56,6 +58,7 @@ func TestParseConfigBlob(t *testing.T) {
 			if !tt.wantEmpty {
 				assert.Equal(t, tt.wantArch, cfg.Architecture)
 				assert.Equal(t, tt.wantOS, cfg.OS)
+				assert.Equal(t, tt.wantVariant, cfg.Variant)
 			}
 		})
 	}

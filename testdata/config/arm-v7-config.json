@@ -1,0 +1,14 @@
+{
+	"architecture": "arm",
+	"os": "linux",
+	"variant": "v7",
+	"config": {
+		"Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+		"Cmd": ["/bin/sh"]
+	},
+	"created": "2026-01-01T00:00:00Z",
+	"rootfs": {
+		"type": "layers",
+		"diff_ids": ["sha256:def456"]
+	}
+}
