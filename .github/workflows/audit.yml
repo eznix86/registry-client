@@ -36,7 +36,7 @@ jobs:
         run: go build -v ./...
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9.0.0
+        uses: golangci/golangci-lint-action@v9.3.0
         with:
           skip-pkg-cache: false
           skip-build-cache: false
